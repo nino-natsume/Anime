@@ -52,11 +52,11 @@ set_secret "D1_DATABASE_ID" "$D1_ID"
 read -rsp "请输入 KV_NAMESPACE_ID (回车跳过): " KV_ID; echo
 set_secret "KV_NAMESPACE_ID" "$KV_ID"
 
-read -rsp "请输入 GITHUB_CLIENT_ID (回车跳过): " GH_ID; echo
-set_secret "GITHUB_CLIENT_ID" "$GH_ID"
+read -rsp "请输入 CLIENT_ID (回车跳过): " GH_ID; echo
+set_secret "CLIENT_ID" "$GH_ID"
 
-read -rsp "请输入 GITHUB_CLIENT_SECRET (回车跳过): " GH_SECRET; echo
-set_secret "GITHUB_CLIENT_SECRET" "$GH_SECRET"
+read -rsp "请输入 CLIENT_SECRET (回车跳过): " GH_SECRET; echo
+set_secret "CLIENT_SECRET" "$GH_SECRET"
 
 read -rsp "请输入 JWT_SECRET (回车跳过): " JWT; echo
 set_secret "JWT_SECRET" "$JWT"

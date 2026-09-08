@@ -23,8 +23,8 @@ jobs:
           [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ] && MISSING="$MISSING CLOUDFLARE_ACCOUNT_ID"
           [ -z "${{ secrets.D1_DATABASE_ID }}" ]        && MISSING="$MISSING D1_DATABASE_ID"
           [ -z "${{ secrets.KV_NAMESPACE_ID }}" ]       && MISSING="$MISSING KV_NAMESPACE_ID"
-          [ -z "${{ secrets.GITHUB_CLIENT_ID }}" ]      && MISSING="$MISSING GITHUB_CLIENT_ID"
-          [ -z "${{ secrets.GITHUB_CLIENT_SECRET }}" ]  && MISSING="$MISSING GITHUB_CLIENT_SECRET"
+          [ -z "${{ secrets.CLIENT_ID }}" ]            && MISSING="$MISSING CLIENT_ID"
+          [ -z "${{ secrets.CLIENT_SECRET }}" ]        && MISSING="$MISSING CLIENT_SECRET"
           [ -z "${{ secrets.JWT_SECRET }}" ]            && MISSING="$MISSING JWT_SECRET"
 
           if [ -n "$MISSING" ]; then
@@ -73,8 +73,8 @@ jobs:
             echo "⚠️  未配置 KV_NAMESPACE_ID, 不绑定 KV"
           fi
 
-          [ -n "${{ secrets.GITHUB_CLIENT_ID }}" ]     && ARGS="$ARGS --var GITHUB_CLIENT_ID=${{ secrets.GITHUB_CLIENT_ID }}"
-          [ -n "${{ secrets.GITHUB_CLIENT_SECRET }}" ] && ARGS="$ARGS --var GITHUB_CLIENT_SECRET=${{ secrets.GITHUB_CLIENT_SECRET }}"
+          [ -n "${{ secrets.CLIENT_ID }}" ]            && ARGS="$ARGS --var GITHUB_CLIENT_ID=${{ secrets.CLIENT_ID }}"
+          [ -n "${{ secrets.CLIENT_SECRET }}" ]        && ARGS="$ARGS --var GITHUB_CLIENT_SECRET=${{ secrets.CLIENT_SECRET }}"
           [ -n "${{ secrets.JWT_SECRET }}" ]           && ARGS="$ARGS --var JWT_SECRET=${{ secrets.JWT_SECRET }}"
           [ -n "${{ secrets.STREAM_API_URL }}" ]       && ARGS="$ARGS --var STREAM_API_URL=${{ secrets.STREAM_API_URL }}"
 
