@@ -551,58 +551,18 @@ async function handleAddHistory(request, env, corsHeaders) {
   return jsonResponse({ success: true }, 200, corsHeaders);
 }
 
-// ─── 动漫数据代理 (AniList GraphQL, 替代 Jikan -- 免费无 key, 宽松限速) ───
+// ─── 动漫数据代理 (Kitsu API, 免费无 key; 兼容原 Jikan 响应结构) ───
 
-const ANILIST_API = 'https://graphql.anilist.co';
+const KITSU_API = 'https://kitsu.io/api/edge';
 
-const LIST_QUERY = `
-query ($page: Int, $perPage: Int, $sort: [MediaSort], $season: MediaSeason, $seasonYear: Int, $format: MediaFormat, $search: String) {
-  Page(page: $page, perPage: $perPage) {
-    pageInfo { hasNextPage }
-    media(type: ANIME, sort: $sort, season: $season, seasonYear: $seasonYear, format: $format, search: $search) {
-      id
-      idMal
-      title { romaji english native }
-      format
-      status
-      episodes
-      averageScore
-      seasonYear
-      season
-      genres
-      synopsis
-      coverImage { extraLarge large medium }
-      bannerImage
-      trailer { id site }
-      relations { edges { relationType node { id idMal title { romaji english } type } } }
-    }
-  }
-}`;
+const KITSU_TYPE_MAP = {
+  TV: 'TV', movie: 'Movie', OVA: 'OVA', ONA: 'ONA', special: 'Special', music: 'Music',
+};
+const KITSU_STATUS_MAP = {
+  current: 'Currently Airing', finished: 'Finished Airing', upcoming: 'Not yet aired', unreleased: 'Not yet aired',
+};
 
-const DETAIL_QUERY = `
-query ($id: Int, $idMal: Int) {
-  Media(type: ANIME, id: $id, idMal: $idMal) {
-    id
-    idMal
-    title { romaji english native }
-    format
-    status
-    episodes
-    averageScore
-    seasonYear
-    season
-    genres
-    synopsis
-    coverImage { extraLarge large medium }
-    bannerImage
-    trailer { id site }
-    relations { edges { relationType node { id idMal title { romaji english } type } } }
-  }
-}`;
-
-const FORMAT_MAP = { TV: 'TV', MOVIE: 'Movie', OVA: 'OVA', ONA: 'ONA', SPECIAL: 'Special' };
-const SEASON_MAP = { WINTER: 'winter', SPRING: 'spring', SUMMER: 'summer', FALL: 'fall' };
-const SEASON_ORDER = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
+const SEASON_ORDER = ['winter', 'spring', 'summer', 'fall'];
 
 function currentSeason(offset = 0) {
   const d = new Date();
@@ -615,67 +575,61 @@ function currentSeason(offset = 0) {
   idx += offset;
   let year = d.getFullYear() + Math.floor(idx / 4);
   idx = ((idx % 4) + 4) % 4;
-  return { season: SEASON_ORDER[idx], seasonYear: year };
+  return { season: SEASON_ORDER[idx], year };
 }
 
-async function anilistQuery(query, variables) {
-  const res = await fetch(ANILIST_API, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'User-Agent': 'Narumi-Anime-Tracker/1.0',
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`AniList ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  return res.json();
-}
-
-function anilistToJikan(media) {
-  if (!media) return null;
+function kitsuToJikan(item) {
+  const a = item?.attributes || {};
+  const seasonYear = a.seasonYear || (a.startDate ? parseInt(a.startDate.slice(0, 4), 10) : null);
+  const season = a.season; // winter/spring/summer/fall —— 与 Jikan 一致
+  const avg = parseFloat(a.averageRating);
   return {
-    mal_id: media.idMal || media.id,
-    anilist_id: media.id,
-    url: `https://anilist.co/anime/${media.id}`,
-    title: media.title?.romaji || media.title?.english || media.title?.native || 'Unknown',
-    title_english: media.title?.english || null,
-    title_japanese: media.title?.native || null,
-    type: FORMAT_MAP[media.format] || media.format,
-    status: media.status,
-    episodes: media.episodes,
-    score: media.averageScore ? (media.averageScore / 10).toFixed(2) : null,
-    year: media.seasonYear,
-    season: SEASON_MAP[media.season] || null,
-    synopsis: media.synopsis,
-    genres: (media.genres || []).map(g => ({ name: g })),
+    mal_id: item?.id,
+    kitsu_id: item?.id,
+    url: `https://kitsu.io/anime/${item?.id}`,
+    title: a.canonicalTitle || a.titles?.en_jp || a.titles?.en || 'Unknown',
+    title_english: a.titles?.en || null,
+    title_japanese: a.titles?.ja_jp || null,
+    type: KITSU_TYPE_MAP[a.subtype] || a.subtype,
+    status: KITSU_STATUS_MAP[a.status] || a.status,
+    episodes: a.episodeCount,
+    score: Number.isFinite(avg) ? (avg / 10).toFixed(2) : null,
+    year: seasonYear,
+    season,
+    synopsis: a.synopsis,
+    genres: (a.genres || []).map(g => ({ name: g })),
     images: {
       jpg: {
-        image_url: media.coverImage?.large || media.coverImage?.medium || '',
-        large_image_url: media.coverImage?.extraLarge || media.coverImage?.large || '',
-        small_image_url: media.coverImage?.medium || '',
+        image_url: a.posterImage?.medium || a.posterImage?.small || a.posterImage?.original || '',
+        large_image_url: a.posterImage?.large || a.posterImage?.original || a.posterImage?.medium || '',
+        small_image_url: a.posterImage?.small || a.posterImage?.tiny || '',
       },
     },
-    trailer: media.trailer?.site === 'youtube' ? { url: `https://www.youtube.com/watch?v=${media.trailer.id}` } : null,
-    relations: (media.relations?.edges || []).map(e => ({
-      relation: e.relationType,
-      entry: [{
-        mal_id: e.node?.idMal || e.node?.id,
-        name: e.node?.title?.romaji || e.node?.title?.english || '',
-        type: e.node?.type === 'ANIME' ? 'anime' : 'manga',
-      }],
-    })),
+    trailer: null,
+    relations: [],
   };
+}
+
+async function kitsuFetch(path, retries = 2) {
+  const res = await fetch(`${KITSU_API}${path}`, {
+    headers: { 'User-Agent': 'Narumi-Anime-Tracker/1.0', 'Accept': 'application/vnd.api+json' },
+  });
+  if (res.status === 429 && retries > 0) {
+    await new Promise(r => setTimeout(r, 1200));
+    return kitsuFetch(path, retries - 1);
+  }
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Kitsu ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  return res.json();
 }
 
 async function handleAnimeProxy(request, env, corsHeaders) {
   const url = new URL(request.url);
   const path = url.pathname.replace('/api/anime', '');
   const search = url.searchParams;
-  const cacheKey = `anilist:${path}:${url.search}`;
+  const cacheKey = `kitsu:${path}:${url.search}`;
   const cacheTTL = 3600; // 1 hour
 
   // 尝试从 KV 读取缓存
@@ -693,102 +647,97 @@ async function handleAnimeProxy(request, env, corsHeaders) {
   try {
     // ── 热门排行: /top/anime?page=1&limit=25 ──
     if (path === '/top/anime') {
-      const page = parseInt(search.get('page') || '1', 10);
-      const perPage = Math.min(parseInt(search.get('limit') || '25', 10), 40);
-      const data = await anilistQuery(LIST_QUERY, {
-        page, perPage, sort: ['POPULARITY_DESC'],
-      });
+      const page = Math.max(parseInt(search.get('page') || '1', 10), 1);
+      const limit = Math.min(parseInt(search.get('limit') || '25', 10), 40);
+      const offset = (page - 1) * limit;
+      const data = await kitsuFetch(`/anime?sort=-popularityRank&filter[subtype]=TV&page[limit]=${limit}&page[offset]=${offset}`);
       result = {
-        data: (data.data?.Page?.media || []).map(anilistToJikan),
-        pagination: { has_next_page: data.data?.Page?.pageInfo?.hasNextPage ?? false },
+        data: (data.data || []).map(kitsuToJikan),
+        pagination: { has_next_page: !!data.links?.next },
       };
     }
 
     // ── 当季新番: /seasons/now?page=1&limit=25 ──
     else if (path === '/seasons/now') {
-      const page = parseInt(search.get('page') || '1', 10);
-      const perPage = Math.min(parseInt(search.get('limit') || '25', 10), 40);
-      const { season, seasonYear } = currentSeason(0);
-      const data = await anilistQuery(LIST_QUERY, {
-        page, perPage, season, seasonYear, sort: ['TRENDING_DESC', 'POPULARITY_DESC'],
-      });
+      const page = Math.max(parseInt(search.get('page') || '1', 10), 1);
+      const limit = Math.min(parseInt(search.get('limit') || '25', 10), 40);
+      const offset = (page - 1) * limit;
+      const { season, year } = currentSeason(0);
+      const data = await kitsuFetch(`/anime?filter[seasonYear]=${year}&filter[season]=${season}&filter[subtype]=TV&sort=-popularityRank&page[limit]=${limit}&page[offset]=${offset}`);
       result = {
-        data: (data.data?.Page?.media || []).map(anilistToJikan),
-        pagination: { has_next_page: data.data?.Page?.pageInfo?.hasNextPage ?? false },
+        data: (data.data || []).map(kitsuToJikan),
+        pagination: { has_next_page: !!data.links?.next },
       };
     }
 
     // ── 即将开播: /seasons/upcoming?page=1&limit=10 ──
     else if (path === '/seasons/upcoming') {
-      const perPage = Math.min(parseInt(search.get('limit') || '10', 10), 40);
-      const { season, seasonYear } = currentSeason(1);
-      const data = await anilistQuery(LIST_QUERY, {
-        page: 1, perPage, season, seasonYear, sort: ['POPULARITY_DESC'],
-      });
+      const limit = Math.min(parseInt(search.get('limit') || '10', 10), 40);
+      const { season, year } = currentSeason(1);
+      const data = await kitsuFetch(`/anime?filter[seasonYear]=${year}&filter[season]=${season}&filter[subtype]=TV&sort=-popularityRank&page[limit]=${limit}`);
       result = {
-        data: (data.data?.Page?.media || []).map(anilistToJikan),
-        pagination: { has_next_page: false },
+        data: (data.data || []).map(kitsuToJikan),
+        pagination: { has_next_page: !!data.links?.next },
       };
     }
 
     // ── 搜索: /anime?q=xxx&limit=20&type=movie ──
     else if (path === '/anime' && search.get('q')) {
-      const perPage = Math.min(parseInt(search.get('limit') || '20', 10), 40);
+      const limit = Math.min(parseInt(search.get('limit') || '20', 10), 40);
       const typeParam = search.get('type');
-      const formatMap = { tv: 'TV', movie: 'MOVIE', ova: 'OVA', ona: 'ONA', special: 'SPECIAL' };
-      const data = await anilistQuery(LIST_QUERY, {
-        page: 1,
-        perPage,
-        search: search.get('q'),
-        sort: ['SEARCH_MATCH'],
-        format: formatMap[typeParam] || 'TV',
-      });
+      const typeMap = { tv: 'TV', movie: 'movie', ova: 'OVA', ona: 'ONA', special: 'special' };
+      const typeFilter = typeMap[typeParam] || 'TV';
+      const q = encodeURIComponent(search.get('q'));
+      const data = await kitsuFetch(`/anime?filter[text]=${q}&filter[subtype]=${typeFilter}&page[limit]=${limit}`);
       result = {
-        data: (data.data?.Page?.media || []).map(anilistToJikan),
-        pagination: { has_next_page: false },
+        data: (data.data || []).map(kitsuToJikan),
+        pagination: { has_next_page: !!data.links?.next },
       };
     }
 
     // ── 剧集列表: /anime/{id}/episodes ──
     else if (/^\/anime\/\d+\/episodes$/.test(path)) {
       const id = parseInt(path.split('/')[2], 10);
-      let media = null;
-      let data = await anilistQuery(DETAIL_QUERY, { id: null, idMal: id });
-      media = data.data?.Media;
-      if (!media) {
-        data = await anilistQuery(DETAIL_QUERY, { id, idMal: null });
-        media = data.data?.Media;
-      }
-      const total = media?.episodes || 12;
+      if (isNaN(id)) throw new Error('Bad id');
+      const data = await kitsuFetch(`/anime/${id}/episodes?page[limit]=100`);
       result = {
-        data: Array.from({ length: total }, (_, i) => ({
-          mal_id: i + 1,
-          title: `第${i + 1}集`,
-          aired: null,
-          anilist_id: media?.id,
-        })),
+        data: (data.data || []).map(ep => {
+          const attrs = ep?.attributes || {};
+          return {
+            mal_id: attrs.number || ep?.id,
+            title: attrs.canonicalTitle || attrs.titles?.en_us || `第${attrs.number || '?'}集`,
+            aired: attrs.airdate || null,
+            length: attrs.length || null,
+          };
+        }),
       };
     }
 
     // ── 详情: /anime/{id}/full ──
     else if (/^\/anime\/\d+\/full$/.test(path)) {
       const id = parseInt(path.split('/')[2], 10);
-      let media = null;
-      let data = await anilistQuery(DETAIL_QUERY, { id: null, idMal: id });
-      media = data.data?.Media;
-      if (!media) {
-        data = await anilistQuery(DETAIL_QUERY, { id, idMal: null });
-        media = data.data?.Media;
+      if (isNaN(id)) throw new Error('Bad id');
+      const detail = await kitsuFetch(`/anime/${id}`);
+      const anime = kitsuToJikan(detail.data);
+      if (anime) {
+        try {
+          const genres = await kitsuFetch(`/anime/${id}/genres?page[limit]=20`);
+          anime.genres = (genres.data || []).map(g => ({ name: g?.attributes?.name })).filter(g => g.name);
+          const trailer = await kitsuFetch(`/anime/${id}/streaming-links?page[limit]=1`);
+          if (trailer.data?.[0]?.attributes?.url) {
+            anime.trailer = { url: trailer.data[0].attributes.url };
+          }
+        } catch (e) { /* 可选增强失败不影响详情 */ }
       }
-      result = { data: anilistToJikan(media) };
+      result = { data: anime };
     }
 
     else {
       return jsonResponse({ error: 'Unknown endpoint' }, 404, corsHeaders);
     }
   } catch (err) {
-    console.error('AniList proxy error:', err);
-    return jsonResponse({ error: 'AniList API 请求失败', message: err.message }, 502, corsHeaders);
+    console.error('Kitsu proxy error:', err);
+    return jsonResponse({ error: 'Kitsu API 请求失败', message: err.message }, 502, corsHeaders);
   }
 
   // 写入缓存
