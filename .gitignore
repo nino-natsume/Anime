@@ -1,0 +1,29 @@
+# Wrangler
+.wrangler
+.wrangler.tmp
+node_modules/
+
+# Build outputs
+dist/
+build/
+public/cache/
+
+# Cloudflare
+CACHE
+*.kv
+wrangler.local.toml
+.cloudflare.local
+
+# Dev
+.dev/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

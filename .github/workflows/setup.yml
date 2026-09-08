@@ -1,0 +1,106 @@
+name: Setup Cloudflare Resources
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    name: Create D1 + KV Resources
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: Create D1 Database
+        id: d1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "Creating D1 database..."
+          OUTPUT=$(wrangler d1 create anime 2>&1) || true
+          echo "$OUTPUT"
+
+          DB_ID=$(echo "$OUTPUT" | grep -oP 'database_id = "\K[^"]+' | head -1)
+          DB_PREVIEW=$(echo "$OUTPUT" | grep -oP 'preview_database_id = "\K[^"]+' | head -1)
+
+          if [ -n "$DB_ID" ]; then
+            echo "✅ D1 Created: $DB_ID"
+            echo "db_id=$DB_ID" >> "$GITHUB_OUTPUT"
+            echo "db_preview=$DB_PREVIEW" >> "$GITHUB_OUTPUT"
+          else
+            echo "⚠️  D1 creation failed or already exists"
+            echo "db_id=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create KV Namespace
+        id: kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "Creating KV namespace..."
+          OUTPUT=$(wrangler kv namespace create CACHE 2>&1) || true
+          echo "$OUTPUT"
+
+          KV_ID=$(echo "$OUTPUT" | grep -oP '"id":\s*"\K[^"]+' | head -1)
+
+          if [ -n "$KV_ID" ]; then
+            echo "✅ KV Created: $KV_ID"
+            echo "kv_id=$KV_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "⚠️  KV creation failed or already exists"
+            echo "kv_id=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Print Instructions
+        run: |
+          DB_ID="${{ steps.d1.outputs.db_id }}"
+          DB_PREVIEW="${{ steps.d1.outputs.db_preview }}"
+          KV_ID="${{ steps.kv.outputs.kv_id }}"
+
+          echo ""
+          echo "╔══════════════════════════════════════════════════╗"
+          echo "║     Cloudflare Resources Created!                ║"
+          echo "╚══════════════════════════════════════════════════╝"
+          echo ""
+
+          if [ -n "$DB_ID" ]; then
+            echo "D1 Database ID:    $DB_ID"
+            echo "D1 Preview ID:     $DB_PREVIEW"
+            echo ""
+            echo "→ Add D1_DATABASE_ID to GitHub Secrets"
+          else
+            echo "⚠️  D1 not created. Add manually:"
+            echo "   wrangler d1 create anime"
+          fi
+
+          echo ""
+
+          if [ -n "$KV_ID" ]; then
+            echo "KV Namespace ID:   $KV_ID"
+            echo ""
+            echo "→ Add KV_NAMESPACE_ID to GitHub Secrets"
+          else
+            echo "⚠️  KV not created. Add manually:"
+            echo "   wrangler kv namespace create CACHE"
+          fi
+
+          echo ""
+          echo "══════════════════════════════════════════════════"
+          echo ""
+          echo "Next steps:"
+          echo "1. Copy the IDs above to GitHub Repository Secrets"
+          echo "2. Also add these secrets:"
+          echo "   - CLOUDFLARE_API_TOKEN  (you already have this)"
+          echo "   - CLOUDFLARE_ACCOUNT_ID (you already have this)"
+          echo "   - GITHUB_CLIENT_ID:  Ov23liI5XAVEBI57CKut"
+          echo "   - GITHUB_CLIENT_SECRET: (from your GitHub App)"
+          echo "   - JWT_SECRET: (any random string)"
+          echo "   - SITE_URL: https://narumi.<your-subdomain>.workers.dev"
+          echo ""
+          echo "3. Push to main branch to deploy!"
+          echo ""
