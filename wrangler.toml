@@ -11,19 +11,5 @@ bucket = "./public"
 [vars]
 SITE_URL = "https://anime.107211.xyz"
 
-# 敏感配置通过 GitHub Actions 的 --var 注入, 不入库:
-#   GITHUB_CLIENT_ID
-#   GITHUB_CLIENT_SECRET
-#   JWT_SECRET
-#   STREAM_API_URL (可选)
-
-# D1 数据库绑定
-[[d1_databases]]
-binding = "DB"
-database_name = "anime"
-database_id = ""  # 通过 GitHub Secret D1_DATABASE_ID 注入
-
-# KV 命名空间绑定 (用于缓存)
-[[kv_namespaces]]
-binding = "CACHE"
-id = ""  # 通过 GitHub Secret KV_NAMESPACE_ID 注入
+# D1 / KV 绑定在部署时通过命令行动态注入 (wrangler deploy --d1/--kv),
+# 避免在配置文件里残留空的 database_id / id 导致解析报错。
