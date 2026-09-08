@@ -551,12 +551,131 @@ async function handleAddHistory(request, env, corsHeaders) {
   return jsonResponse({ success: true }, 200, corsHeaders);
 }
 
-// ─── Jikan API 代理 ───
+// ─── 动漫数据代理 (AniList GraphQL, 替代 Jikan -- 免费无 key, 宽松限速) ───
+
+const ANILIST_API = 'https://graphql.anilist.co';
+
+const LIST_QUERY = `
+query ($page: Int, $perPage: Int, $sort: [MediaSort], $season: MediaSeason, $seasonYear: Int, $format: MediaFormat, $search: String) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage }
+    media(type: ANIME, sort: $sort, season: $season, seasonYear: $seasonYear, format: $format, search: $search) {
+      id
+      idMal
+      title { romaji english native }
+      format
+      status
+      episodes
+      averageScore
+      seasonYear
+      season
+      genres
+      synopsis
+      coverImage { extraLarge large medium }
+      bannerImage
+      trailer { id site }
+      relations { edges { relationType node { id idMal title { romaji english } type } } }
+    }
+  }
+}`;
+
+const DETAIL_QUERY = `
+query ($id: Int, $idMal: Int) {
+  Media(type: ANIME, id: $id, idMal: $idMal) {
+    id
+    idMal
+    title { romaji english native }
+    format
+    status
+    episodes
+    averageScore
+    seasonYear
+    season
+    genres
+    synopsis
+    coverImage { extraLarge large medium }
+    bannerImage
+    trailer { id site }
+    relations { edges { relationType node { id idMal title { romaji english } type } } }
+  }
+}`;
+
+const FORMAT_MAP = { TV: 'TV', MOVIE: 'Movie', OVA: 'OVA', ONA: 'ONA', SPECIAL: 'Special' };
+const SEASON_MAP = { WINTER: 'winter', SPRING: 'spring', SUMMER: 'summer', FALL: 'fall' };
+const SEASON_ORDER = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
+
+function currentSeason(offset = 0) {
+  const d = new Date();
+  const month = d.getMonth() + 1; // 1-12
+  let idx = 0;
+  if (month >= 1 && month <= 3) idx = 0;
+  else if (month >= 4 && month <= 6) idx = 1;
+  else if (month >= 7 && month <= 9) idx = 2;
+  else idx = 3;
+  idx += offset;
+  let year = d.getFullYear() + Math.floor(idx / 4);
+  idx = ((idx % 4) + 4) % 4;
+  return { season: SEASON_ORDER[idx], seasonYear: year };
+}
+
+async function anilistQuery(query, variables) {
+  const res = await fetch(ANILIST_API, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'User-Agent': 'Narumi-Anime-Tracker/1.0',
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`AniList ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+function anilistToJikan(media) {
+  if (!media) return null;
+  return {
+    mal_id: media.idMal || media.id,
+    anilist_id: media.id,
+    url: `https://anilist.co/anime/${media.id}`,
+    title: media.title?.romaji || media.title?.english || media.title?.native || 'Unknown',
+    title_english: media.title?.english || null,
+    title_japanese: media.title?.native || null,
+    type: FORMAT_MAP[media.format] || media.format,
+    status: media.status,
+    episodes: media.episodes,
+    score: media.averageScore ? (media.averageScore / 10).toFixed(2) : null,
+    year: media.seasonYear,
+    season: SEASON_MAP[media.season] || null,
+    synopsis: media.synopsis,
+    genres: (media.genres || []).map(g => ({ name: g })),
+    images: {
+      jpg: {
+        image_url: media.coverImage?.large || media.coverImage?.medium || '',
+        large_image_url: media.coverImage?.extraLarge || media.coverImage?.large || '',
+        small_image_url: media.coverImage?.medium || '',
+      },
+    },
+    trailer: media.trailer?.site === 'youtube' ? { url: `https://www.youtube.com/watch?v=${media.trailer.id}` } : null,
+    relations: (media.relations?.edges || []).map(e => ({
+      relation: e.relationType,
+      entry: [{
+        mal_id: e.node?.idMal || e.node?.id,
+        name: e.node?.title?.romaji || e.node?.title?.english || '',
+        type: e.node?.type === 'ANIME' ? 'anime' : 'manga',
+      }],
+    })),
+  };
+}
 
 async function handleAnimeProxy(request, env, corsHeaders) {
   const url = new URL(request.url);
   const path = url.pathname.replace('/api/anime', '');
-  const cacheKey = `jikan:${path}:${url.search}`;
+  const search = url.searchParams;
+  const cacheKey = `anilist:${path}:${url.search}`;
   const cacheTTL = 3600; // 1 hour
 
   // 尝试从 KV 读取缓存
@@ -569,26 +688,117 @@ async function handleAnimeProxy(request, env, corsHeaders) {
     // KV 不可用，忽略
   }
 
-  // 代理请求到 Jikan API
-  const jikanUrl = `https://api.jikan.moe/v4${path}${url.search}`;
-  const jikanRes = await fetch(jikanUrl, {
-    headers: { 'User-Agent': 'Narumi-Anime-Tracker/1.0' },
-  });
+  let result;
 
-  if (!jikanRes.ok) {
-    return jsonResponse({ error: 'Jikan API 请求失败' }, jikanRes.status, corsHeaders);
+  try {
+    // ── 热门排行: /top/anime?page=1&limit=25 ──
+    if (path === '/top/anime') {
+      const page = parseInt(search.get('page') || '1', 10);
+      const perPage = Math.min(parseInt(search.get('limit') || '25', 10), 40);
+      const data = await anilistQuery(LIST_QUERY, {
+        page, perPage, sort: ['POPULARITY_DESC'],
+      });
+      result = {
+        data: (data.data?.Page?.media || []).map(anilistToJikan),
+        pagination: { has_next_page: data.data?.Page?.pageInfo?.hasNextPage ?? false },
+      };
+    }
+
+    // ── 当季新番: /seasons/now?page=1&limit=25 ──
+    else if (path === '/seasons/now') {
+      const page = parseInt(search.get('page') || '1', 10);
+      const perPage = Math.min(parseInt(search.get('limit') || '25', 10), 40);
+      const { season, seasonYear } = currentSeason(0);
+      const data = await anilistQuery(LIST_QUERY, {
+        page, perPage, season, seasonYear, sort: ['TRENDING_DESC', 'POPULARITY_DESC'],
+      });
+      result = {
+        data: (data.data?.Page?.media || []).map(anilistToJikan),
+        pagination: { has_next_page: data.data?.Page?.pageInfo?.hasNextPage ?? false },
+      };
+    }
+
+    // ── 即将开播: /seasons/upcoming?page=1&limit=10 ──
+    else if (path === '/seasons/upcoming') {
+      const perPage = Math.min(parseInt(search.get('limit') || '10', 10), 40);
+      const { season, seasonYear } = currentSeason(1);
+      const data = await anilistQuery(LIST_QUERY, {
+        page: 1, perPage, season, seasonYear, sort: ['POPULARITY_DESC'],
+      });
+      result = {
+        data: (data.data?.Page?.media || []).map(anilistToJikan),
+        pagination: { has_next_page: false },
+      };
+    }
+
+    // ── 搜索: /anime?q=xxx&limit=20&type=movie ──
+    else if (path === '/anime' && search.get('q')) {
+      const perPage = Math.min(parseInt(search.get('limit') || '20', 10), 40);
+      const typeParam = search.get('type');
+      const formatMap = { tv: 'TV', movie: 'MOVIE', ova: 'OVA', ona: 'ONA', special: 'SPECIAL' };
+      const data = await anilistQuery(LIST_QUERY, {
+        page: 1,
+        perPage,
+        search: search.get('q'),
+        sort: ['SEARCH_MATCH'],
+        format: formatMap[typeParam] || 'TV',
+      });
+      result = {
+        data: (data.data?.Page?.media || []).map(anilistToJikan),
+        pagination: { has_next_page: false },
+      };
+    }
+
+    // ── 剧集列表: /anime/{id}/episodes ──
+    else if (/^\/anime\/\d+\/episodes$/.test(path)) {
+      const id = parseInt(path.split('/')[2], 10);
+      let media = null;
+      let data = await anilistQuery(DETAIL_QUERY, { id: null, idMal: id });
+      media = data.data?.Media;
+      if (!media) {
+        data = await anilistQuery(DETAIL_QUERY, { id, idMal: null });
+        media = data.data?.Media;
+      }
+      const total = media?.episodes || 12;
+      result = {
+        data: Array.from({ length: total }, (_, i) => ({
+          mal_id: i + 1,
+          title: `第${i + 1}集`,
+          aired: null,
+          anilist_id: media?.id,
+        })),
+      };
+    }
+
+    // ── 详情: /anime/{id}/full ──
+    else if (/^\/anime\/\d+\/full$/.test(path)) {
+      const id = parseInt(path.split('/')[2], 10);
+      let media = null;
+      let data = await anilistQuery(DETAIL_QUERY, { id: null, idMal: id });
+      media = data.data?.Media;
+      if (!media) {
+        data = await anilistQuery(DETAIL_QUERY, { id, idMal: null });
+        media = data.data?.Media;
+      }
+      result = { data: anilistToJikan(media) };
+    }
+
+    else {
+      return jsonResponse({ error: 'Unknown endpoint' }, 404, corsHeaders);
+    }
+  } catch (err) {
+    console.error('AniList proxy error:', err);
+    return jsonResponse({ error: 'AniList API 请求失败', message: err.message }, 502, corsHeaders);
   }
-
-  const data = await jikanRes.json();
 
   // 写入缓存
   try {
-    await env.CACHE.put(cacheKey, JSON.stringify(data), { expirationTtl: cacheTTL });
+    await env.CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: cacheTTL });
   } catch (e) {
     // KV 不可用，忽略
   }
 
-  return jsonResponse(data, 200, corsHeaders);
+  return jsonResponse(result, 200, corsHeaders);
 }
 
 // ─── 流媒体 API 代理 ───

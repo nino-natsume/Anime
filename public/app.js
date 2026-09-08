@@ -8,7 +8,7 @@
 
   // ─── 配置 ───
   const API_BASE = window.location.origin;
-  const JIKAN_BASE = `${API_BASE}/api/anime`;
+  const ANIME_BASE = `${API_BASE}/api/anime`;
   const PER_PAGE = 24;
 
   // ─── 状态 ───
@@ -60,15 +60,15 @@
     }
   }
 
-  async function jikanFetch(path) {
-    const res = await fetch(`${JIKAN_BASE}${path}`, {
-      headers: { 'User-Agent': 'Narumi-Tracker/1.0' },
+  async function animeFetch(path) {
+    const res = await fetch(`${ANIME_BASE}${path}`, {
+      headers: { 'Accept': 'application/json' },
     });
     if (res.status === 429) {
       await delay(1000);
-      return jikanFetch(path);
+      return animeFetch(path);
     }
-    if (!res.ok) throw new Error('Jikan API error');
+    if (!res.ok) throw new Error('Anime API error');
     return res.json();
   }
 
@@ -161,9 +161,9 @@
 
     try {
       const [topRes, seasonalRes, upcomingRes] = await Promise.all([
-        jikanFetch('/top/anime?filter=bypopularity&limit=10'),
-        jikanFetch('/seasons/now?page=1&limit=10&filter=tv'),
-        jikanFetch('/seasons/upcoming?page=1&limit=10&filter=tv'),
+        animeFetch('/top/anime?filter=bypopularity&limit=10'),
+        animeFetch('/seasons/now?page=1&limit=10&filter=tv'),
+        animeFetch('/seasons/upcoming?page=1&limit=10&filter=tv'),
       ]);
 
       const topAnime = topRes.data || [];
@@ -215,7 +215,7 @@
       let allAnime = [];
       let page = 1;
       while (page <= 3) {
-        const res = await jikanFetch(`/seasons/now?page=${page}&limit=25&filter=tv`);
+        const res = await animeFetch(`/seasons/now?page=${page}&limit=25&filter=tv`);
         if (res.data) allAnime = allAnime.concat(res.data);
         if (!res.pagination || !res.pagination.has_next_page) break;
         page++;
@@ -245,7 +245,7 @@
     try {
       let allAnime = [];
       for (let page = 1; page <= 3; page++) {
-        const res = await jikanFetch(`/top/anime?page=${page}&limit=25&filter=bypopularity`);
+        const res = await animeFetch(`/top/anime?page=${page}&limit=25&filter=bypopularity`);
         if (res.data) allAnime = allAnime.concat(res.data);
         if (!res.pagination || !res.pagination.has_next_page) break;
         if (page < 3) await delay(400);
@@ -281,8 +281,8 @@
 
     try {
       const [detailRes, episodesRes] = await Promise.all([
-        jikanFetch(`/anime/${id}/full`),
-        jikanFetch(`/anime/${id}/episodes`),
+        animeFetch(`/anime/${id}/full`),
+        animeFetch(`/anime/${id}/episodes`),
       ]);
 
       const anime = detailRes.data;
@@ -673,7 +673,7 @@
 
     try {
       const filterParam = state.searchFilter !== 'tv' ? `&type=${state.searchFilter}` : '';
-      const res = await jikanFetch(`/anime?q=${encodeURIComponent(query)}&limit=20${filterParam}&sfw=true`);
+      const res = await animeFetch(`/anime?q=${encodeURIComponent(query)}&limit=20${filterParam}&sfw=true`);
       const results = res.data || [];
 
       if (!results.length) {
