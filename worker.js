@@ -784,16 +784,42 @@ async function handleAnimeProxy(request, env, corsHeaders) {
 
 // ─── 流媒体 API 代理 ───
 // 通过环境变量 STREAM_API_URL 配置上游 (consumet-style gogoanime, 例如 https://api.consumet.org/anime/gogoanime)
+// 支持多个上游: 用英文逗号分隔, 逐个故障转移 (免费公共源不稳定, 多源更稳)
+
+const DEFAULT_STREAM_SOURCES = [
+  'https://api.consumet.org/anime/gogoanime',
+  'https://anime-api.hanifz.com/anime/gogoanime',
+];
+
+function listStreamBases(env) {
+  const raw = env.STREAM_API_URL || DEFAULT_STREAM_SOURCES.join(',');
+  return raw.split(/[,，]/).map(s => s.trim().replace(/\/+$/, '')).filter(Boolean);
+}
+
+async function tryStreamUpstreams(env, buildPath) {
+  const bases = listStreamBases(env);
+  let lastErr = '未配置任何流媒体源 (STREAM_API_URL)';
+  for (const base of bases) {
+    try {
+      const res = await buildPath(base);
+      if (res && res.ok) {
+        return { ok: true, status: res.status, data: null, raw: res };
+      }
+      if (res) lastErr = `上游 ${base} 返回 ${res.status}`;
+    } catch (err) {
+      lastErr = `上游 ${base} 连接失败: ${err.message}`;
+    }
+  }
+  return { ok: false, error: lastErr };
+}
 
 async function handleStreamProxy(request, env, corsHeaders) {
   const url = new URL(request.url);
   const path = url.pathname.replace('/api/stream', '');
   const search = url.searchParams;
 
-  const streamApiBase = (env.STREAM_API_URL || 'https://api.consumet.org/anime/gogoanime').replace(/\/+$/, '');
-
   const streamHeaders = {
-    'User-Agent': 'Narumi-Anime-Tracker/1.0',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
     'Accept': 'application/json',
   };
 
@@ -803,78 +829,93 @@ async function handleStreamProxy(request, env, corsHeaders) {
     const animeId = infoMatch[1];
     const targetEp = parseInt(infoMatch[2], 10);
 
-    try {
-      // 优先使用前端传入的中文标题搜索 gogoanime, 否则从 Bangumi 拉取
-      let title = search.get('q') || '';
-      if (!title) {
-        try {
-          const detail = await bgmFetch(`/v0/subjects/${animeId}`);
-          title = detail?.name_cn || detail?.name || '';
-        } catch { /* 标题获取失败则尝试用空标题搜索 */ }
+    // 优先使用前端传入的中文标题, 否则从 Bangumi 拉取
+    let title = search.get('q') || '';
+    if (!title) {
+      try {
+        const detail = await bgmFetch(`/v0/subjects/${animeId}`);
+        title = detail?.name_cn || detail?.name || '';
+      } catch { /* 忽略 */ }
+    }
+
+    // 用标题搜索各上游拿 gogoId
+    let gogoId = null;
+    let searchError = '标题为空, 无法搜索';
+    const searchResult = await tryStreamUpstreams(env, async (base) => {
+      if (!title) return null;
+      const res = await fetch(`${base}/search/${encodeURIComponent(title)}?page=1`, { headers: streamHeaders });
+      if (res.ok) {
+        const data = await res.json();
+        const results = data?.results || [];
+        // 标题弱匹配, 提高命中准确度
+        const norm = (s) => (s || '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+        let matched = results[0]?.id || null;
+        if (results.length > 1) {
+          const target = norm(title).slice(0, 10);
+          const found = results.find(r => norm(r.title).includes(target));
+          if (found) matched = found.id;
+        }
+        if (matched) gogoId = matched;
       }
+      return res;
+    });
+    if (searchResult.error) searchError = searchResult.error;
 
-      let gogoId = null;
-      if (title) {
-        const searchRes = await fetch(`${streamApiBase}/search/${encodeURIComponent(title)}?page=1`, { headers: streamHeaders });
-        if (searchRes.ok) {
-          const searchData = await searchRes.json();
-          const results = searchData?.results || [];
-          gogoId = results[0]?.id || null;
+    if (!gogoId) {
+      return jsonResponse({ error: '未在播放源中找到该番剧', search: searchError, fallback: true }, 404, corsHeaders);
+    }
 
-          // 标题弱匹配, 提高命中准确度
-          if (!gogoId || results.length > 1) {
-            const norm = (s) => (s || '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
-            const target = norm(title).slice(0, 10);
-            const matched = results.find(r => norm(r.title).includes(target));
-            if (matched) gogoId = matched.id;
-          }
+    // 拉取剧集列表 (多源故障转移)
+    let infoData = null;
+    let infoUpstream = null;
+    const infoResult = await tryStreamUpstreams(env, async (base) => {
+      const res = await fetch(`${base}/info/${gogoId}`, { headers: streamHeaders });
+      if (res.ok) {
+        const data = await res.json();
+        const episodes = (data?.episodes || []).map(ep => ({
+          id: ep.id,
+          number: parseInt(ep.number, 10) || ep.number,
+          title: ep.title || (ep.number ? `第 ${ep.number} 集` : ''),
+        }));
+        if (episodes.length) {
+          infoData = episodes;
+          infoUpstream = base;
         }
       }
-
-      if (!gogoId) {
-        return jsonResponse({ error: '未在播放源中找到该番剧', fallback: true }, 404, corsHeaders);
-      }
-
-      const infoRes = await fetch(`${streamApiBase}/info/${gogoId}`, { headers: streamHeaders });
-      if (!infoRes.ok) {
-        return jsonResponse({ error: '流媒体服务暂时不可用', fallback: true }, infoRes.status, corsHeaders);
-      }
-      const infoData = await infoRes.json();
-
-      const episodes = (infoData?.episodes || []).map(ep => ({
-        id: ep.id,
-        number: parseInt(ep.number, 10) || ep.number,
-        title: ep.title || (ep.number ? `第 ${ep.number} 集` : ''),
-      }));
-
-      if (!episodes.length) {
-        return jsonResponse({ error: '未获取到剧集列表', fallback: true }, 404, corsHeaders);
-      }
-
+      return res;
+    });
+    if (infoData) {
       return jsonResponse({
-        episodes,
+        episodes: infoData,
         gogoanime_id: gogoId,
         target_episode: targetEp,
         anime_title: title,
+        upstream: infoUpstream,
       }, 200, corsHeaders);
-    } catch (err) {
-      return jsonResponse({ error: '流媒体服务连接失败', fallback: true, message: err.message }, 502, corsHeaders);
     }
+    return jsonResponse({
+      error: '剧集列表获取失败, 流媒体源不可用',
+      detail: infoResult.error,
+      fallback: true,
+    }, 502, corsHeaders);
   }
 
   // ── 获取播放源: /episode/{episodeId} ──
   const episodeMatch = path.match(/^\/episode\/(.+)$/);
   if (episodeMatch) {
     const episodeId = episodeMatch[1];
-    try {
-      const watchRes = await fetch(`${streamApiBase}/watch/${encodeURIComponent(episodeId)}`, { headers: streamHeaders });
-      if (!watchRes.ok) {
-        return jsonResponse({ error: '流媒体服务暂时不可用', fallback: true }, watchRes.status, corsHeaders);
+    let watchData = null;
+    let watchUpstream = null;
+    const watchResult = await tryStreamUpstreams(env, async (base) => {
+      const res = await fetch(`${base}/watch/${encodeURIComponent(episodeId)}`, { headers: streamHeaders });
+      if (res.ok) {
+        watchData = await res.json();
+        watchUpstream = base;
       }
-      return jsonResponse(await watchRes.json(), 200, corsHeaders);
-    } catch (err) {
-      return jsonResponse({ error: '流媒体服务连接失败', fallback: true, message: err.message }, 502, corsHeaders);
-    }
+      return res;
+    });
+    if (watchData) return jsonResponse({ ...watchData, upstream: watchUpstream }, 200, corsHeaders);
+    return jsonResponse({ error: '播放源获取失败, 流媒体源不可用', detail: watchResult.error, fallback: true }, 502, corsHeaders);
   }
 
   return jsonResponse({ error: 'Unknown stream endpoint' }, 404, corsHeaders);

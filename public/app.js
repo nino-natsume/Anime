@@ -215,14 +215,18 @@
     `;
 
     const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
-    const todayIdx = (new Date().getDay() + 6) % 7; // 0=周一
+    const todayIdx = (new Date().getDay() + 6) % 7; // 0=周一 ... 6=周日
 
     try {
       const res = await animeFetch('/schedule');
       const schedule = res.data || [];
 
-      // 按 weekday.id 排序 (1=周一 ... 7=周日)
-      schedule.sort((a, b) => (a.weekday?.id || 99) - (b.weekday?.id || 99));
+      // 按今日周几排最前, 之后每日往后循环 (今天 -> 明天 -> ... -> 昨天)
+      schedule.sort((a, b) => {
+        const da = ((a.weekday?.id || 1) - 1 - todayIdx + 7) % 7;
+        const db = ((b.weekday?.id || 1) - 1 - todayIdx + 7) % 7;
+        return da - db;
+      });
 
       const html = schedule.map((day) => {
         const dayIdx = (day.weekday?.id || 1) - 1;
@@ -394,10 +398,10 @@
               <p class="detail-synopsis">${anime.synopsis || '暂无简介'}</p>
 
               <div class="detail-actions">
-                <a href="#/watch?anime=${id}" class="btn-primary" onclick="window.Narumi.openPlayer(${id}, 1, '${(anime.title || '').replace(/'/g, "\\'")}')">
+                <button class="btn-primary" onclick="window.Narumi.openPlayer(${id}, 1, '${(anime.title || '').replace(/'/g, "\\'")}')">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   开始播放
-                </a>
+                </button>
                 ${state.user ? `
                   <button class="btn-secondary" onclick="window.Narumi.toggleWatchlist(${id}, '${(anime.title || '').replace(/'/g, "\\'")}', '${(anime.images?.jpg?.image_url || '').replace(/'/g, "\\'")}')">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="${inWatchlist ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
