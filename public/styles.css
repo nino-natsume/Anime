@@ -45,6 +45,44 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* ── 明色 (亮色) 主题变量覆盖 ── */
+[data-theme="light"] {
+  --bg-primary: #f5f6fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef0f6;
+  --bg-card: rgba(255, 255, 255, 0.92);
+  --bg-card-hover: rgba(255, 255, 255, 1);
+  --bg-glass: rgba(255, 255, 255, 0.85);
+
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a4a66;
+  --text-muted: #8a8aa3;
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-accent: rgba(0, 212, 255, 0.35);
+
+  --shadow-sm: 0 2px 8px rgba(20, 20, 40, 0.08);
+  --shadow-md: 0 4px 20px rgba(20, 20, 40, 0.1);
+  --shadow-lg: 0 8px 40px rgba(20, 20, 40, 0.14);
+  --shadow-glow: 0 0 30px rgba(0, 212, 255, 0.25);
+}
+
+[data-theme="light"] .navbar {
+  background: rgba(255, 255, 255, 0.85);
+}
+[data-theme="light"] .navbar.scrolled {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 30px rgba(20, 20, 40, 0.12);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.3); }
+
+/* 亮色下导航交互背景用深色叠加, 保证可见 */
+[data-theme="light"] .nav-link:hover { background: rgba(20, 20, 40, 0.06); }
+[data-theme="light"] .nav-link.active { background: rgba(0, 212, 255, 0.12); }
+[data-theme="light"] .search-toggle:hover,
+[data-theme="light"] .theme-toggle:hover { background: rgba(20, 20, 40, 0.06); }
+
 /* ── Reset ── */
 *, *::before, *::after {
   margin: 0;
@@ -260,6 +298,25 @@ img { max-width: 100%; display: block; }
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
 }
+
+.theme-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: all 0.25s;
+}
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+.theme-toggle .icon-moon { display: none; }
+.theme-toggle .icon-sun { display: block; }
+[data-theme="light"] .theme-toggle .icon-moon { display: block; }
+[data-theme="light"] .theme-toggle .icon-sun { display: none; }
 
 .user-menu { position: relative; }
 
@@ -2054,4 +2111,135 @@ img { max-width: 100%; display: block; }
   padding: 40px 20px;
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+/* ── 放送表 (周播) ── */
+.schedule-day {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+  transition: border-color 0.3s;
+}
+.schedule-day.today {
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.schedule-day-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.schedule-day-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.schedule-today-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent-gradient);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+}
+
+.schedule-day-count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.schedule-anime-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.schedule-card {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.25s var(--ease-out);
+  animation: fadeScaleIn 0.4s var(--ease-out) both;
+}
+.schedule-card:hover {
+  border-color: var(--border-accent);
+  background: var(--bg-card-hover);
+  transform: translateY(-2px);
+}
+
+.schedule-thumb {
+  width: 64px;
+  height: 88px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+}
+.schedule-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.schedule-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.schedule-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
+}
+
+.schedule-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.schedule-meta .rating {
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.schedule-empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 16px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 768px) {
+  .schedule-anime-list {
+    grid-template-columns: 1fr;
+  }
+  .episodes-section {
+    padding: 24px 16px;
+  }
 }

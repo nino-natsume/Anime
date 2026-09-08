@@ -125,6 +125,8 @@
 
     if (path === '/' || path === '') {
       await renderHomePage();
+    } else if (path === '/schedule') {
+      await renderSchedulePage();
     } else if (path === '/seasonal') {
       await renderSeasonalPage();
     } else if (path === '/trending') {
@@ -200,6 +202,75 @@
       observeCards();
     } catch (err) {
       dom.app.innerHTML = `<div class="section"><div class="empty-state"><div class="icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 15h8M9 9h.01M15 9h.01"/></svg></div><h3>加载失败</h3><p>${err.message}，请稍后重试</p></div></div>`;
+    }
+  }
+
+  // 周播表页
+  async function renderSchedulePage() {
+    dom.app.innerHTML = `
+      <div class="section page-transition">
+        <div class="section-header"><h2 class="section-title"><span class="icon"></span>放送表</h2></div>
+        <div style="text-align:center;padding:40px"><div class="loader-ring small" style="margin:0 auto"><div class="loader-ring-inner"></div></div></div>
+      </div>
+    `;
+
+    const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+    const todayIdx = (new Date().getDay() + 6) % 7; // 0=周一
+
+    try {
+      const res = await animeFetch('/schedule');
+      const schedule = res.data || [];
+
+      // 按 weekday.id 排序 (1=周一 ... 7=周日)
+      schedule.sort((a, b) => (a.weekday?.id || 99) - (b.weekday?.id || 99));
+
+      const html = schedule.map((day) => {
+        const dayIdx = (day.weekday?.id || 1) - 1;
+        const label = WEEKDAYS[dayIdx] || day.weekday?.cn || '未知';
+        const isToday = dayIdx === todayIdx;
+        const items = day.items || [];
+        return `
+          <div class="schedule-day ${isToday ? 'today' : ''}">
+            <div class="schedule-day-header">
+              <span class="schedule-day-name">${label}</span>
+              ${isToday ? '<span class="schedule-today-badge">今天</span>' : ''}
+              <span class="schedule-day-count">${items.length} 部</span>
+            </div>
+            ${items.length ? `
+              <div class="schedule-anime-list">
+                ${items.map((a, i) => `
+                  <div class="schedule-card" style="animation-delay:${Math.min(i * 0.03, 0.4)}s" onclick="location.hash='#/anime/${a.mal_id}'">
+                    <div class="schedule-thumb">
+                      <img src="${a.images?.jpg?.image_url || a.images?.jpg?.large_image_url || ''}" alt="${a.title}" loading="lazy">
+                    </div>
+                    <div class="schedule-info">
+                      <div class="schedule-title">${a.title}</div>
+                      <div class="schedule-meta">
+                        ${a.score ? `<span class="rating"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>${a.score}</span>` : ''}
+                        ${a.type ? `<span>${a.type}</span>` : ''}
+                        ${a.episodes ? `<span>${a.episodes}集</span>` : ''}
+                        ${a.air_date ? `<span>${a.air_date}</span>` : ''}
+                      </div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : '<div class="schedule-empty">当天暂无放送</div>'}
+          </div>
+        `;
+      }).join('');
+
+      dom.app.innerHTML = `
+        <div class="section page-transition">
+          <div class="section-header">
+            <h2 class="section-title"><span class="icon"></span>放送表 <span style="font-size:0.6em;color:var(--text-muted);font-weight:400">本周在播动画</span></h2>
+          </div>
+          ${html}
+        </div>
+      `;
+      observeCards();
+    } catch (err) {
+      dom.app.innerHTML = `<div class="section"><div class="empty-state"><p>加载失败: ${err.message}</p></div></div>`;
     }
   }
 
@@ -713,22 +784,31 @@
     document.body.classList.add('no-scroll');
     $('#playerTitle').textContent = title || '';
     $('#playerEpisodeInfo').textContent = `第 ${episode} 集`;
+    $('#playerLoading').innerHTML = '';
     $('#playerLoading').style.display = 'flex';
 
-    // 使用嵌入式播放源 (goganime 风格)
-    // 注意: 实际使用需要配置可用的流媒体 API
+    const loaderHtml = () => `
+      <div class="loader-ring small"><div class="loader-ring-inner"></div></div>
+      <span>正在加载播放源...</span>
+    `;
+    $('#playerLoading').innerHTML = loaderHtml();
+
+    // 使用嵌入式播放源 (consumet gogoanime 风格, 可配置 STREAM_API_URL)
     const iframe = $('#playerFrame');
     iframe.src = '';
 
-    // 尝试获取流媒体信息
-    fetch(`${API_BASE}/api/stream/info/${animeId}-episode-${episode}`)
+    // 1) 通过标题搜索 gogoanime 番剧 ID, 获取剧集列表
+    fetch(`${API_BASE}/api/stream/info/${animeId}-episode-${episode}?q=${encodeURIComponent(title || '')}`)
       .then(r => r.json())
       .then(data => {
         if (data.episodes && data.episodes.length) {
+          // 2) 找到对应的播放集数
           const ep = data.episodes.find(e => parseInt(e.number) === episode) || data.episodes[episode - 1];
-          if (ep?.id) {
-            return fetch(`${API_BASE}/api/stream/episode/${ep.id}`);
-          }
+          if (!ep?.id) throw new Error('no_source');
+
+          renderPlayerEpisodes(animeId, episode, title, data.episodes);
+
+          return fetch(`${API_BASE}/api/stream/episode/${encodeURIComponent(ep.id)}`);
         }
         throw new Error('no_source');
       })
@@ -745,20 +825,32 @@
         throw new Error('no_source');
       })
       .catch(() => {
-        // 降级: 使用内嵌浏览器播放
+        // 降级: 显示流媒体源不可用提示
         $('#playerLoading').innerHTML = `
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
           <p>流媒体源暂时不可用</p>
           <p style="font-size:0.75rem;margin-top:4px">可配置 STREAM_API_URL 环境变量接入流媒体 API</p>
         `;
+        renderPlayerEpisodes(animeId, episode, title, null);
       });
+  }
 
-    // 生成剧集按钮
-    const episodesHtml = Array.from({ length: Math.min(episode + 5, 24) }, (_, i) => {
-      const ep = i + 1;
-      return `<div class="player-ep-btn ${ep === episode ? 'active' : ''}" onclick="window.Narumi.openPlayer(${animeId}, ${ep}, '${(title || '').replace(/'/g, "\\'")}')">第 ${ep} 集</div>`;
-    }).join('');
-    $('#playerEpisodes').innerHTML = episodesHtml;
+  function renderPlayerEpisodes(animeId, currentEp, title, episodes) {
+    let html = '';
+    if (episodes && episodes.length) {
+      html = episodes.map(ep => {
+        const epNum = parseInt(ep.number, 10) || 0;
+        if (!epNum) return '';
+        return `<div class="player-ep-btn ${epNum === currentEp ? 'active' : ''}" onclick="window.Narumi.openPlayer(${animeId}, ${epNum}, '${(title || '').replace(/'/g, "\\'")}')">第 ${epNum} 集</div>`;
+      }).join('');
+    } else {
+      // 兜底: 生成假集数
+      html = Array.from({ length: Math.min(currentEp + 5, 24) }, (_, i) => {
+        const ep = i + 1;
+        return `<div class="player-ep-btn ${ep === currentEp ? 'active' : ''}" onclick="window.Narumi.openPlayer(${animeId}, ${ep}, '${(title || '').replace(/'/g, "\\'")}')">第 ${ep} 集</div>`;
+      }).join('');
+    }
+    $('#playerEpisodes').innerHTML = html;
   }
 
   function closePlayer() {
@@ -985,8 +1077,31 @@
     }
   }
 
+  // ─── 明暗主题切换 ───
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+    localStorage.setItem('narumi_theme', theme);
+  }
+
+  function initTheme() {
+    const saved = localStorage.getItem('narumi_theme');
+    const preferLight = window.matchMedia?.('(prefers-color-scheme: light)').matches;
+    applyTheme(saved || (preferLight ? 'light' : 'dark'));
+    $('#themeToggle')?.addEventListener('click', () => {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      applyTheme(isLight ? 'dark' : 'light');
+    });
+  }
+
   // ─── 事件绑定 ───
   function bindEvents() {
+    // 明暗主题
+    initTheme();
+
     // 路由
     window.addEventListener('hashchange', navigate);
 

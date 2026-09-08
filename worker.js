@@ -703,6 +703,22 @@ async function handleAnimeProxy(request, env, corsHeaders) {
       };
     }
 
+    // ── 周播表: /schedule → /calendar (按星期分组的放送列表) ──
+    else if (path === '/schedule') {
+      const cal = await bgmFetch('/calendar');
+      result = {
+        data: (cal || []).map(day => {
+          const items = (day.items || []).map(it => {
+            const a = bgmToJikan(it);
+            if (a) a.air_date = it.air_date || null;
+            return a;
+          }).filter(Boolean);
+          return { weekday: day.weekday || null, items };
+        }),
+        pagination: { has_next_page: false },
+      };
+    }
+
     // ── 搜索: /anime?q=xxx&limit=20 → /search/subject/{q}?type=2&responseGroup=large ──
     else if (path === '/anime' && search.get('q')) {
       const limit = Math.min(parseInt(search.get('limit') || '20', 10), 40);
@@ -767,31 +783,99 @@ async function handleAnimeProxy(request, env, corsHeaders) {
 }
 
 // ─── 流媒体 API 代理 ───
+// 通过环境变量 STREAM_API_URL 配置上游 (consumet-style gogoanime, 例如 https://api.consumet.org/anime/gogoanime)
 
 async function handleStreamProxy(request, env, corsHeaders) {
   const url = new URL(request.url);
   const path = url.pathname.replace('/api/stream', '');
+  const search = url.searchParams;
 
-  // 使用可配置的流媒体 API
-  const streamApiBase = env.STREAM_API_URL || 'https://api.consumet.org/anime/gogoanime';
+  const streamApiBase = (env.STREAM_API_URL || 'https://api.consumet.org/anime/gogoanime').replace(/\/+$/, '');
 
-  const streamUrl = `${streamApiBase}${path}${url.search}`;
+  const streamHeaders = {
+    'User-Agent': 'Narumi-Anime-Tracker/1.0',
+    'Accept': 'application/json',
+  };
 
-  try {
-    const streamRes = await fetch(streamUrl, {
-      headers: {
-        'User-Agent': 'Narumi-Anime-Tracker/1.0',
-        'Accept': 'application/json',
-      },
-    });
+  // ── 获取番剧剧集列表: /info/{animeId}-episode-{ep}?q=标题(可选) ──
+  const infoMatch = path.match(/^\/info\/(\d+)-episode-(\d+)$/);
+  if (infoMatch) {
+    const animeId = infoMatch[1];
+    const targetEp = parseInt(infoMatch[2], 10);
 
-    if (!streamRes.ok) {
-      return jsonResponse({ error: '流媒体服务暂时不可用', fallback: true }, streamRes.status, corsHeaders);
+    try {
+      // 优先使用前端传入的中文标题搜索 gogoanime, 否则从 Bangumi 拉取
+      let title = search.get('q') || '';
+      if (!title) {
+        try {
+          const detail = await bgmFetch(`/v0/subjects/${animeId}`);
+          title = detail?.name_cn || detail?.name || '';
+        } catch { /* 标题获取失败则尝试用空标题搜索 */ }
+      }
+
+      let gogoId = null;
+      if (title) {
+        const searchRes = await fetch(`${streamApiBase}/search/${encodeURIComponent(title)}?page=1`, { headers: streamHeaders });
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          const results = searchData?.results || [];
+          gogoId = results[0]?.id || null;
+
+          // 标题弱匹配, 提高命中准确度
+          if (!gogoId || results.length > 1) {
+            const norm = (s) => (s || '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+            const target = norm(title).slice(0, 10);
+            const matched = results.find(r => norm(r.title).includes(target));
+            if (matched) gogoId = matched.id;
+          }
+        }
+      }
+
+      if (!gogoId) {
+        return jsonResponse({ error: '未在播放源中找到该番剧', fallback: true }, 404, corsHeaders);
+      }
+
+      const infoRes = await fetch(`${streamApiBase}/info/${gogoId}`, { headers: streamHeaders });
+      if (!infoRes.ok) {
+        return jsonResponse({ error: '流媒体服务暂时不可用', fallback: true }, infoRes.status, corsHeaders);
+      }
+      const infoData = await infoRes.json();
+
+      const episodes = (infoData?.episodes || []).map(ep => ({
+        id: ep.id,
+        number: parseInt(ep.number, 10) || ep.number,
+        title: ep.title || (ep.number ? `第 ${ep.number} 集` : ''),
+      }));
+
+      if (!episodes.length) {
+        return jsonResponse({ error: '未获取到剧集列表', fallback: true }, 404, corsHeaders);
+      }
+
+      return jsonResponse({
+        episodes,
+        gogoanime_id: gogoId,
+        target_episode: targetEp,
+        anime_title: title,
+      }, 200, corsHeaders);
+    } catch (err) {
+      return jsonResponse({ error: '流媒体服务连接失败', fallback: true, message: err.message }, 502, corsHeaders);
     }
-
-    const data = await streamRes.json();
-    return jsonResponse(data, 200, corsHeaders);
-  } catch (err) {
-    return jsonResponse({ error: '流媒体服务连接失败', fallback: true, message: err.message }, 502, corsHeaders);
   }
+
+  // ── 获取播放源: /episode/{episodeId} ──
+  const episodeMatch = path.match(/^\/episode\/(.+)$/);
+  if (episodeMatch) {
+    const episodeId = episodeMatch[1];
+    try {
+      const watchRes = await fetch(`${streamApiBase}/watch/${encodeURIComponent(episodeId)}`, { headers: streamHeaders });
+      if (!watchRes.ok) {
+        return jsonResponse({ error: '流媒体服务暂时不可用', fallback: true }, watchRes.status, corsHeaders);
+      }
+      return jsonResponse(await watchRes.json(), 200, corsHeaders);
+    } catch (err) {
+      return jsonResponse({ error: '流媒体服务连接失败', fallback: true, message: err.message }, 502, corsHeaders);
+    }
+  }
+
+  return jsonResponse({ error: 'Unknown stream endpoint' }, 404, corsHeaders);
 }
