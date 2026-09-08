@@ -28,3 +28,5 @@ JWT_SECRET = "0d000721"
 # 流媒体源 API (consumet 风格 gogoanime); 支持多个上游, 用英文逗号分隔, 自动故障转移
 # 免费公共源极不稳定, 若都失效, 前端会明确提示「流媒体源不可用」而非直接 404
 STREAM_API_URL = "https://api.consumet.org/anime/gogoanime,https://anime-api.hanifz.com/anime/gogoanime"
+# AniKotoAPI 专属流媒体源 (用户自部署); 配置后 worker 会优先走 AniKoto 取源链路
+STREAM_ANIKOTO_URL = "https://anikoto.107211.xyz"

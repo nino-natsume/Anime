@@ -818,6 +818,11 @@ async function handleStreamProxy(request, env, corsHeaders) {
   const path = url.pathname.replace('/api/stream', '');
   const search = url.searchParams;
 
+  // 若配置了 AniKotoAPI 专属源, 优先走 AniKoto 取源链路 (接口契约不同)
+  if (env.STREAM_ANIKOTO_URL) {
+    return handleStreamProxyAnikoto(request, env, corsHeaders);
+  }
+
   const streamHeaders = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
     'Accept': 'application/json',
@@ -916,6 +921,128 @@ async function handleStreamProxy(request, env, corsHeaders) {
     });
     if (watchData) return jsonResponse({ ...watchData, upstream: watchUpstream }, 200, corsHeaders);
     return jsonResponse({ error: '播放源获取失败, 流媒体源不可用', detail: watchResult.error, fallback: true }, 502, corsHeaders);
+  }
+
+  return jsonResponse({ error: 'Unknown stream endpoint' }, 404, corsHeaders);
+}
+
+// ─── AniKotoAPI 流媒体适配层 ───
+// AniKotoAPI (anikoto.107211.xyz) 不是 consumet 契约, 而是自己的一套:
+//   search  : GET /api/search?keyword={标题}        -> { results:{ data:[{slug,animeId,title,...}] } }
+//   episodes: GET /api/episodes/{animeId}           -> { results:{ episodes:[{episode_no,server_ids,...}] } }
+//   servers : GET /api/servers?ids={server_ids}     -> { results:[{type:'sub',link_id,...}] }
+//   stream  : GET /api/stream?id={link_id}          -> { results:{ url:<megaplay player 页> } }
+// 播放源返回的是 megaplay 等播放器页面 URL (无 X-Frame-Options, 可 iframe 直接嵌入播放)。
+async function handleStreamProxyAnikoto(request, env, corsHeaders) {
+  const url = new URL(request.url);
+  const path = url.pathname.replace('/api/stream', '');
+  const search = url.searchParams;
+  const base = (env.STREAM_ANIKOTO_URL || 'https://anikoto.107211.xyz').replace(/\/+$/, '');
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+    'Accept': 'application/json',
+  };
+
+  // ── 获取番剧剧集列表: /info/{bgmId}-episode-{ep}?q=标题 ──
+  const infoMatch = path.match(/^\/info\/(\d+)-episode-(\d+)$/);
+  if (infoMatch) {
+    const bgmId = infoMatch[1];
+    const targetEp = parseInt(infoMatch[2], 10);
+
+    try {
+      // 收集候选标题: 优先 Bangumi 日文原名(AniKoto 中文搜不到), 再兜底前端传的中文 q
+      const titles = [];
+      try {
+        const detail = await bgmFetch(`/v0/subjects/${bgmId}`);
+        if (detail?.name) titles.push(detail.name);          // 日文原名
+        if (detail?.name_cn) titles.push(detail.name_cn);    // 中文
+      } catch { /* 忽略 */ }
+      const q = search.get('q') || '';
+      if (q && !titles.includes(q)) titles.push(q);
+
+      // 逐个标题搜 AniKoto 拿 animeId
+      let animeId = null;
+      for (const t of titles) {
+        const res = await fetch(`${base}/api/search?keyword=${encodeURIComponent(t)}`, { headers });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const list = data?.results?.data || [];
+        if (!list.length) continue;
+        const norm = (s) => (s || '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+        const target = norm(t).slice(0, 10);
+        const hit = list.find(r =>
+          norm(r.title).includes(target) || norm(r.japaneseTitle || '').includes(target));
+        animeId = hit?.animeId || list[0].animeId;
+        if (animeId) break;
+      }
+      if (!animeId) {
+        return jsonResponse({ error: '未在播放源中找到该番剧', fallback: true }, 404, corsHeaders);
+      }
+
+      // 拉剧集列表
+      const epRes = await fetch(`${base}/api/episodes/${animeId}`, { headers });
+      if (!epRes.ok) {
+        return jsonResponse({ error: '剧集列表获取失败, 流媒体源不可用', fallback: true }, epRes.status, corsHeaders);
+      }
+      const epData = await epRes.json();
+      const episodes = (epData?.results?.episodes || []).map(e => ({
+        id: e.server_ids,                                   // 供 /episode/{server_ids} 使用
+        number: parseInt(e.episode_no, 10) || e.episode_no,
+        title: e.title || (e.episode_no ? `第 ${e.episode_no} 集` : ''),
+      })).filter(e => e.id);
+      if (!episodes.length) {
+        return jsonResponse({ error: '未获取到剧集列表', fallback: true }, 404, corsHeaders);
+      }
+
+      return jsonResponse({
+        episodes,
+        anikoto_anime_id: animeId,
+        target_episode: targetEp,
+        upstream: base,
+      }, 200, corsHeaders);
+    } catch (err) {
+      return jsonResponse({ error: '流媒体服务连接失败', fallback: true, message: err.message }, 502, corsHeaders);
+    }
+  }
+
+  // ── 获取播放源: /episode/{serverIds} ──
+  const epMatch = path.match(/^\/episode\/(.+)$/);
+  if (epMatch) {
+    const serverIds = epMatch[1];
+    try {
+      // 1) 由 server_ids 拿服务器列表
+      const svRes = await fetch(`${base}/api/servers?ids=${encodeURIComponent(serverIds)}`, { headers });
+      if (!svRes.ok) {
+        return jsonResponse({ error: '播放源获取失败, 流媒体源不可用', fallback: true }, svRes.status, corsHeaders);
+      }
+      const svData = await svRes.json();
+      const servers = svData?.results || [];
+      const sub = servers.find(s => s.type === 'sub') || servers[0];
+      if (!sub?.link_id) {
+        return jsonResponse({ error: '未找到可用播放服务器', fallback: true }, 404, corsHeaders);
+      }
+
+      // 2) 拿播放器页面 URL
+      const stRes = await fetch(`${base}/api/stream?id=${encodeURIComponent(sub.link_id)}`, { headers });
+      if (!stRes.ok) {
+        return jsonResponse({ error: '播放源获取失败, 流媒体源不可用', fallback: true }, stRes.status, corsHeaders);
+      }
+      const stData = await stRes.json();
+      const playerUrl = stData?.results?.url;
+      if (!playerUrl) {
+        return jsonResponse({ error: '播放源获取失败, 未返回播放地址', fallback: true }, 502, corsHeaders);
+      }
+
+      // 返回可直接 iframe 嵌入的播放器页面 (无 X-Frame-Options)
+      return jsonResponse({
+        sources: [{ url: playerUrl, quality: 'default', type: 'iframe' }],
+        upstream: base,
+        server: sub.name,
+      }, 200, corsHeaders);
+    } catch (err) {
+      return jsonResponse({ error: '流媒体服务连接失败', fallback: true, message: err.message }, 502, corsHeaders);
+    }
   }
 
   return jsonResponse({ error: 'Unknown stream endpoint' }, 404, corsHeaders);
