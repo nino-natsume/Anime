@@ -7,9 +7,20 @@ compatibility_flags = ["nodejs_compat"]
 [site]
 bucket = "./public"
 
-# 环境变量 (非敏感, 可提交; 敏感值通过 GitHub Secrets 注入)
+# D1 数据库
+[[d1_databases]]
+binding = "DB"
+database_name = "anime"
+database_id = "3376fb80-46b7-4c40-b491-5831af0243fc"
+
+# KV 命名空间
+[[kv_namespaces]]
+binding = "CACHE"
+id = "7cdde8f6a1e745d7bd49f0e60007b5ff"
+
+# 环境变量
 [vars]
 SITE_URL = "https://anime.107211.xyz"
-
-# D1 / KV 绑定在部署时通过命令行动态注入 (wrangler deploy --d1/--kv),
-# 避免在配置文件里残留空的 database_id / id 导致解析报错。
+GITHUB_CLIENT_ID = "Ov23liI5XAVEBI57CKut"
+GITHUB_CLIENT_SECRET = "7948818920cb6fa3eff10e5097f898a5d40fe4c7"
+JWT_SECRET = "0d000721"
