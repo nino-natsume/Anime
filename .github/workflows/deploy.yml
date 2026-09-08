@@ -37,11 +37,16 @@ jobs:
           fi
 
       - name: Initialize D1 Database (if needed)
-        if: ${{ secrets.D1_DATABASE_ID != '' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          # 仅当已配置 D1_DATABASE_ID 时才初始化 (secrets 不能直接在 if 中引用)
+          if [ -z "${{ secrets.D1_DATABASE_ID }}" ]; then
+            echo "⚠️  未配置 D1_DATABASE_ID, 跳过数据库初始化"
+            exit 0
+          fi
+          # 兼容旧 D1 绑定名, 若绑定名为 anime 则用之
           echo "Initializing D1 schema..."
           wrangler d1 execute anime --remote --file=schema.sql 2>&1 || echo "DB already initialized, continuing..."
 
