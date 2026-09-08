@@ -16,6 +16,26 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler
 
+      - name: Verify Required Secrets
+        run: |
+          MISSING=""
+          [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] && MISSING="$MISSING CLOUDFLARE_API_TOKEN"
+          [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ] && MISSING="$MISSING CLOUDFLARE_ACCOUNT_ID"
+          [ -z "${{ secrets.D1_DATABASE_ID }}" ]        && MISSING="$MISSING D1_DATABASE_ID"
+          [ -z "${{ secrets.KV_NAMESPACE_ID }}" ]       && MISSING="$MISSING KV_NAMESPACE_ID"
+          [ -z "${{ secrets.GITHUB_CLIENT_ID }}" ]      && MISSING="$MISSING GITHUB_CLIENT_ID"
+          [ -z "${{ secrets.GITHUB_CLIENT_SECRET }}" ]  && MISSING="$MISSING GITHUB_CLIENT_SECRET"
+          [ -z "${{ secrets.JWT_SECRET }}" ]            && MISSING="$MISSING JWT_SECRET"
+
+          if [ -n "$MISSING" ]; then
+            echo "❌ 缺少以下 GitHub Secrets:${MISSING}"
+            echo ""
+            echo "请在仓库 Settings → Secrets and variables → Actions 添加后重试:"
+            for s in $MISSING; do echo "   - $s"; done
+            exit 1
+          fi
+          echo "✅ 所有必需的 GitHub Secrets 已配置"
+
       - name: Initialize D1 Database
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
