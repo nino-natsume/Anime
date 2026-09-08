@@ -8,7 +8,7 @@
 
   // ─── 配置 ───
   const API_BASE = window.location.origin;
-  const JIKAN_BASE = 'https://api.jikan.moe/v4';
+  const JIKAN_BASE = `${API_BASE}/api/anime`;
   const PER_PAGE = 24;
 
   // ─── 状态 ───
