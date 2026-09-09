@@ -1156,6 +1156,40 @@ img { max-width: 100%; display: block; }
   padding-top: var(--nav-height);
 }
 
+.detail-back {
+  position: fixed;
+  top: calc(var(--nav-height) + 14px);
+  left: 24px;
+  z-index: 950;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  background: rgba(10, 10, 15, 0.65);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  transition: all 0.25s var(--ease-out);
+  cursor: pointer;
+}
+
+.detail-back:hover {
+  background: var(--accent-gradient);
+  color: #fff;
+  border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: var(--accent-glow);
+}
+
+.detail-back svg {
+  flex-shrink: 0;
+}
+
 .detail-hero {
   position: relative;
   height: 520px;
@@ -1982,6 +2016,7 @@ img { max-width: 100%; display: block; }
   .detail-content { padding: 0 20px; margin-top: -140px; }
   .detail-poster { width: 140px; }
   .detail-title { font-size: 1.5rem; }
+  .detail-back { top: calc(var(--nav-height) + 10px); left: 16px; padding: 7px 14px; font-size: 0.8rem; }
 
   .episodes-section { padding: 16px; }
   .episodes-grid {

@@ -377,10 +377,21 @@
     }
   }
 
+  // 详情页返回按钮
+  function detailBackBtn() {
+    return `
+      <button class="detail-back" onclick="window.Narumi.goBack()" aria-label="返回上一页">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        返回
+      </button>
+    `;
+  }
+
   // 详情页
   async function renderDetailPage(id) {
     dom.app.innerHTML = `
       <div class="detail-page page-transition">
+        ${detailBackBtn()}
         <div class="detail-hero"><div class="skeleton" style="width:100%;height:100%"></div></div>
         <div class="detail-content">
           <div class="detail-poster"><div class="skeleton" style="width:100%;height:340px;border-radius:16px"></div></div>
@@ -413,6 +424,7 @@
 
       dom.app.innerHTML = `
         <div class="detail-page page-transition">
+          ${detailBackBtn()}
           <div class="detail-hero">
             <div class="detail-bg" style="background-image:url('${detailImage}')"></div>
             <div class="detail-bg-overlay"></div>
@@ -502,7 +514,12 @@
         </div>
       `;
     } catch (err) {
-      dom.app.innerHTML = `<div class="section"><div class="empty-state"><p>加载失败: ${err.message}</p></div></div>`;
+      dom.app.innerHTML = `
+        <div class="detail-page page-transition">
+          ${detailBackBtn()}
+          <div class="section"><div class="empty-state"><p>加载失败: ${err.message}</p></div></div>
+        </div>
+      `;
     }
   }
 
@@ -1358,6 +1375,13 @@
     closePlayer,
     toggleWatchlist,
     removeWatchlist,
+    goBack: () => {
+      if (window.history.length > 1) {
+        window.history.back();
+      } else {
+        window.location.hash = '#/';
+      }
+    },
   };
 
   // ─── 启动 ───
