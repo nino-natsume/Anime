@@ -1411,6 +1411,7 @@ img { max-width: 100%; display: block; }
   visibility: hidden;
   transition: all 0.3s var(--ease-out);
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .player-overlay.show {
@@ -1503,8 +1504,9 @@ img { max-width: 100%; display: block; }
   margin: 0 auto;
   padding: 24px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
   gap: 8px;
+  min-width: 0;
 }
 
 .player-ep-btn {
@@ -2371,7 +2373,7 @@ img { max-width: 100%; display: block; }
   /* 播放器紧凑 */
   .player-header { gap: 8px; padding: 10px 12px; }
   .player-back { padding: 6px 10px; }
-  .player-episodes { padding: 12px; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 6px; }
+  .player-episodes { padding: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 108px), 1fr)); gap: 6px; }
   .player-ep-btn { padding: 9px 8px; font-size: 0.75rem; }
 }
 
@@ -2391,7 +2393,7 @@ img { max-width: 100%; display: block; }
 
   .player-title { font-size: 0.85rem; }
   .player-episode-info { font-size: 0.72rem; }
-  .player-episodes { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+  .player-episodes { grid-template-columns: repeat(auto-fill, minmax(min(100%, 96px), 1fr)); }
 }
 
 /* ── 播放页信息区 (番名/简略信息/收藏) ── */
