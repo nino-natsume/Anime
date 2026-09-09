@@ -12,7 +12,9 @@ Cloudflare Workers + D1 + KV 构建的日漫追番平台，Push 自动部署。
 
 ## 部署
 
-打开 GitHub 仓库 → **Actions** → **Manual Deploy (手动部署 · 输入 Secret 即可)** → **Run workflow**，在弹出的表单里填入 Secret 值：
+**注意：以下值需在 `Actions` 内填写，按表单展示的必填项整理好**
+
+打开 GitHub 仓库 → **Actions** → **Manual Deploy (手动部署 · 输入 Secret 即可)** → **Run workflow**，点击 Run 后 **Actions**即可
 
 | 表单字段 | 类型 | 说明 |
 |----------|------|------|
@@ -25,8 +27,6 @@ Cloudflare Workers + D1 + KV 构建的日漫追番平台，Push 自动部署。
 | `CLIENT_SECRET` | 密文 | GitHub OAuth Client Secret（必填，自动打码） |
 | `JWT_SECRET` | 密文 | JWT 签名密钥（必填，自动打码） |
 | `STREAM_API_URL` / `STREAM_ANIKOTO_URL` | 文本 | 参考[AniKotoAPI](https://github.com/Shineii86/AniKotoAPI)，部署后填入 |
-
-点击 Run 后 **Actions**即可
 
 ## Android APK
 
