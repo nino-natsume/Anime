@@ -12,9 +12,11 @@ Cloudflare Workers + D1 + KV 构建的日漫追番平台，Push 自动部署。
 
 ## 部署
 
-**注意：以下值需在 `Actions` 内填写，按表单展示的必填项整理好**
+**无需配置 GitHub Secrets**，所有配置在 Actions 界面填写即可。
 
-打开 GitHub 仓库 → **Actions** → **Manual Deploy (手动部署 · 输入 Secret 即可)** → **Run workflow**，点击 Run 后 **Actions**即可
+### 部署站点
+
+打开 GitHub 仓库 → **Actions** → **Manual Deploy (手动部署 · 输入 Secret 即可)** → **Run workflow**，在弹出的表单里填入配置值：
 
 | 表单字段 | 类型 | 说明 |
 |----------|------|------|
@@ -27,6 +29,19 @@ Cloudflare Workers + D1 + KV 构建的日漫追番平台，Push 自动部署。
 | `CLIENT_SECRET` | 密文 | GitHub OAuth Client Secret（必填，自动打码） |
 | `JWT_SECRET` | 密文 | JWT 签名密钥（必填，自动打码） |
 | `STREAM_API_URL` / `STREAM_ANIKOTO_URL` | 文本 | 参考[AniKotoAPI](https://github.com/Shineii86/AniKotoAPI)，部署后填入 |
+
+点击 Run 后等待 Actions 完成即可。
+
+### 重置数据库
+
+打开 GitHub 仓库 → **Actions** → **D1 Reset (清空数据库)** → **Run workflow**，填入：
+
+| 表单字段 | 类型 | 说明 |
+|----------|------|------|
+| `CLOUDFLARE_ACCOUNT_ID` | 文本 | Cloudflare 账户 ID（必填） |
+| `CLOUDFLARE_API_TOKEN` | 密文 | Cloudflare API Token（必填，自动打码） |
+| `D1_DATABASE_ID` | 文本 | D1 数据库 ID（必填） |
+| `confirm` | 文本 | 输入 `RESET` 确认清空 |
 
 ## Android APK
 

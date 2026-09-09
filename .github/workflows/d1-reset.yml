@@ -3,6 +3,14 @@ name: D1 Reset (清空数据库)
 on:
   workflow_dispatch:
     inputs:
+      CLOUDFLARE_ACCOUNT_ID:
+        description: 'Cloudflare Account ID'
+        required: true
+        default: ''
+      CLOUDFLARE_API_TOKEN:
+        description: 'Cloudflare API Token'
+        required: true
+        type: secret
       D1_DATABASE_ID:
         description: 'D1 Database ID'
         required: true
@@ -26,8 +34,8 @@ jobs:
 
       - name: Wipe D1 tables (users / watchlist / watch_history)
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ inputs.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           DB_ID="${{ inputs.D1_DATABASE_ID }}"
           echo "清空 users / watchlist / watch_history (db=$DB_ID) ..."
