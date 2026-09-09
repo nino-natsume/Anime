@@ -901,11 +901,12 @@
       });
   }
 
-  // 播放页信息区: 番名/简略信息/收藏按钮, 无详情数据时隐藏
+  // 播放页信息区: 番名 → 信息 → (集数后)追番按钮
   function renderPlayerInfo(animeId, title) {
     const el = $('#playerInfo');
+    const actionsEl = $('#playerActions');
     const anime = state.lastDetail && String(state.lastDetail.mal_id) === String(animeId) ? state.lastDetail : null;
-    if (!anime) { el.style.display = 'none'; return; }
+    if (!anime) { el.style.display = 'none'; if (actionsEl) actionsEl.innerHTML = ''; return; }
     el.style.display = '';
     const img = imgProxy(anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url) || IMG_FALLBACK;
     const inWatchlist = state.user ? state.watchlistData.some(w => String(w.anime_id) === String(animeId)) : false;
@@ -915,34 +916,41 @@
       anime.episodes ? `<span class="player-info-chip">${anime.episodes} 集</span>` : '',
       anime.year ? `<span class="player-info-chip">${anime.year}年</span>` : '',
     ].filter(Boolean).join('');
-    const watchBtn = state.user ? `
-      <button class="player-info-watch watch-btn ${inWatchlist ? 'active' : ''}" data-id="${animeId}"
-        onclick="window.Narumi.toggleWatchlist(${animeId}, '${(anime.title || '').replace(/'/g, "\\'")}', '${(anime.images?.jpg?.image_url || '').replace(/'/g, "\\'")}')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="${inWatchlist ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-        <span>${inWatchlist ? '已追番' : '追番'}</span>
-      </button>
-    ` : `
-      <button class="player-info-watch" onclick="window.Narumi.showAuth()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-        <span>登录后追番</span>
-      </button>
-    `;
+
+    // 信息区: 海报 + 番名 + 信息芯片 + 简介
     el.innerHTML = `
-      <div class="player-info-poster-wrap">
-        <img class="player-info-poster" src="${img}" alt="" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
+      <div class="player-info-header">
+        <div class="player-info-poster-wrap">
+          <img class="player-info-poster" src="${img}" alt="" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
+        </div>
+        <div class="player-info-main">
+          <div class="player-info-title">${anime.title || title}</div>
+          ${chips ? `<div class="player-info-meta">${chips}</div>` : ''}
+        </div>
       </div>
-      <div class="player-info-main">
-        <div class="player-info-title">${anime.title || title}</div>
-        ${chips ? `<div class="player-info-meta">${chips}</div>` : ''}
-        ${anime.synopsis ? `<p class="player-info-synopsis">${anime.synopsis}</p>` : ''}
-      </div>
-      <div class="player-info-side">${watchBtn}</div>
+      ${anime.synopsis ? `<p class="player-info-synopsis">${anime.synopsis}</p>` : ''}
     `;
+
+    // 追番按钮: 放在集数列表之后
+    if (actionsEl) {
+      actionsEl.innerHTML = state.user ? `
+        <button class="player-actions-watch watch-btn ${inWatchlist ? 'active' : ''}" data-id="${animeId}"
+          onclick="window.Narumi.toggleWatchlist(${animeId}, '${(anime.title || '').replace(/'/g, "\\'")}', '${(anime.images?.jpg?.image_url || '').replace(/'/g, "\\'")}')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="${inWatchlist ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          <span>${inWatchlist ? '已追番' : '追番'}</span>
+        </button>
+      ` : `
+        <button class="player-actions-watch" onclick="window.Narumi.showAuth()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          <span>登录后追番</span>
+        </button>
+      `;
+    }
   }
 
   // 播放页收藏按钮状态轻量刷新 (不重新加载整页)
   function refreshPlayerWatchBtn(animeId) {
-    const btn = $(`.player-info-watch[data-id="${animeId}"]`);
+    const btn = $(`.player-actions-watch[data-id="${animeId}"]`);
     if (!btn) return;
     const inWatchlist = state.watchlistData.some(w => String(w.anime_id) === String(animeId));
     btn.classList.toggle('active', inWatchlist);
