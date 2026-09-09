@@ -491,7 +491,7 @@
               <div class="section-header"><h2 class="section-title"><span class="icon"></span>相关作品</h2></div>
               <div class="recommendations-row">
                 ${anime.relations.filter(r => r.entry?.length).slice(0, 8).map(r => r.entry.slice(0, 3).map(e => `
-                  <div class="rec-card" onclick="location.hash='#/anime/${e.mal_id}'">
+                  <div class="rec-card" onclick="location.replace('#/anime/${e.mal_id}')">
                     <div class="poster"><div class="skeleton" style="width:100%;height:100%"></div></div>
                     <div class="title">${truncate(e.name, 20)}</div>
                   </div>
@@ -1253,7 +1253,13 @@
     }, true);
 
     // 路由
-    window.addEventListener('hashchange', navigate);
+    window.addEventListener('hashchange', () => {
+      // 路由变化时自动收起全屏覆盖层, 避免造成"返回无效"的假象
+      closePlayer();
+      if (dom.searchPanel.classList.contains('show')) dom.searchPanel.classList.remove('show');
+      if (dom.authModal.classList.contains('show')) hideAuth();
+      navigate();
+    });
 
     // 搜索
     $('#searchToggle')?.addEventListener('click', () => {
