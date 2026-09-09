@@ -1,3 +1,7 @@
+# Narumi wrangler 配置模板（不含任何机密，可安全入库）
+# 部署时由 GitHub Actions 使用 secrets 实时填充占位符并生成临时 wrangler.toml
+# 占位符语法: {{ENV_NAME}}  -> 从对应环境变量注入
+
 name = "narumi"
 main = "worker.js"
 compatibility_date = "2024-09-01"
@@ -12,21 +16,21 @@ not_found_handling = "single-page-application"
 [[d1_databases]]
 binding = "DB"
 database_name = "anime"
-database_id = "3376fb80-46b7-4c40-b491-5831af0243fc"
+database_id = "{{D1_DATABASE_ID}}"
 
 # KV 命名空间
 [[kv_namespaces]]
 binding = "CACHE"
-id = "7cdde8f6a1e745d7bd49f0e60007b5ff"
+id = "{{KV_NAMESPACE_ID}}"
 
 # 环境变量
 [vars]
-SITE_URL = "https://anime.107211.xyz"
-GITHUB_CLIENT_ID = "Ov23liI5XAVEBI57CKut"
-GITHUB_CLIENT_SECRET = "7948818920cb6fa3eff10e5097f898a5d40fe4c7"
-JWT_SECRET = "0d000721"
+SITE_URL = "{{SITE_URL}}"
+GITHUB_CLIENT_ID = "{{GITHUB_CLIENT_ID}}"
+GITHUB_CLIENT_SECRET = "{{GITHUB_CLIENT_SECRET}}"
+JWT_SECRET = "{{JWT_SECRET}}"
 # 流媒体源 API (consumet 风格 gogoanime); 支持多个上游, 用英文逗号分隔, 自动故障转移
 # 免费公共源极不稳定, 若都失效, 前端会明确提示「流媒体源不可用」而非直接 404
-STREAM_API_URL = "https://api.consumet.org/anime/gogoanime,https://anime-api.hanifz.com/anime/gogoanime"
+STREAM_API_URL = "{{STREAM_API_URL}}"
 # AniKotoAPI 专属流媒体源 (用户自部署); 配置后 worker 会优先走 AniKoto 取源链路
-STREAM_ANIKOTO_URL = "https://anikoto.107211.xyz"
+STREAM_ANIKOTO_URL = "{{STREAM_ANIKOTO_URL}}"

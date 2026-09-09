@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 将 .cloudflare.local 中的凭据 + 交互询问的其它值写入 GitHub Secrets
+# 设置 GitHub Secrets: Cloudflare 凭据 + 部署所需的运行时 secret
 # 用法: bash scripts/set-secrets.sh <your-github-repo>
 
 set -euo pipefail
@@ -17,7 +17,7 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 1
 fi
 
-# 读取本地不入库凭据文件
+# 读取本地不入库凭据文件 (含 Cloudflare 凭据)
 LOCAL_FILE=".cloudflare.local"
 if [ ! -f "$LOCAL_FILE" ]; then
   echo "错误: 未找到 $LOCAL_FILE (请先创建并填入凭据)"
@@ -45,18 +45,21 @@ echo "正在写入 GitHub Secrets 到 $REPO ..."
 set_secret "CLOUDFLARE_ACCOUNT_ID" "$ACCOUNT_ID"
 set_secret "CLOUDFLARE_API_TOKEN" "$API_TOKEN"
 
-# 需要交互输入的值
+# 部署时由 build-config.js 组装 wrangler.toml 所需的真实值
 read -rsp "请输入 D1_DATABASE_ID (回车跳过): " D1_ID; echo
 set_secret "D1_DATABASE_ID" "$D1_ID"
 
 read -rsp "请输入 KV_NAMESPACE_ID (回车跳过): " KV_ID; echo
 set_secret "KV_NAMESPACE_ID" "$KV_ID"
 
-read -rsp "请输入 CLIENT_ID (回车跳过): " GH_ID; echo
-set_secret "CLIENT_ID" "$GH_ID"
+read -rsp "请输入 SITE_URL (回车跳过): " SITE; echo
+set_secret "SITE_URL" "$SITE"
 
-read -rsp "请输入 CLIENT_SECRET (回车跳过): " GH_SECRET; echo
-set_secret "CLIENT_SECRET" "$GH_SECRET"
+read -rsp "请输入 GITHUB_CLIENT_ID (回车跳过): " GH_ID; echo
+set_secret "GITHUB_CLIENT_ID" "$GH_ID"
+
+read -rsp "请输入 GITHUB_CLIENT_SECRET (回车跳过): " GH_SECRET; echo
+set_secret "GITHUB_CLIENT_SECRET" "$GH_SECRET"
 
 read -rsp "请输入 JWT_SECRET (回车跳过): " JWT; echo
 set_secret "JWT_SECRET" "$JWT"
@@ -64,6 +67,14 @@ set_secret "JWT_SECRET" "$JWT"
 read -rsp "请输入 STREAM_API_URL (可选, 回车跳过): " STREAM; echo
 set_secret "STREAM_API_URL" "$STREAM"
 
+read -rsp "请输入 STREAM_ANIKOTO_URL (可选, 回车跳过): " STREAM2; echo
+set_secret "STREAM_ANIKOTO_URL" "$STREAM2"
+
 echo ""
-echo "全部完成! 现在 push 到 main 即可自动部署:"
+echo "全部完成! 每次 Action 部署时会:"
+echo "  1. 在 job 内随机生成一次性密钥"
+echo "  2. 从上述 Secrets 读取真实值并执行双重加密"
+echo "  3. 组装临时 wrangler.toml 后部署, 结束后删除"
+echo ""
+echo "现在 push 到 main 即可自动部署:"
 echo "  git push origin main"

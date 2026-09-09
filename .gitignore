@@ -14,6 +14,11 @@ CACHE
 wrangler.local.toml
 .cloudflare.local
 
+# 运行时生成的明文配置永不入库（部署时由 Actions 从模板+secrets 临时生成）
+wrangler.toml
+wrangler.enc
+wrangler.enc.bak
+
 # Dev
 .dev/
 

@@ -1,0 +1,110 @@
+name: Manual Deploy (手动部署 · 输入 Secret 即可)
+
+# 最简部署方式：无需预先配置 GitHub Secrets、无需本地执行任何脚本。
+# 只需手动触发本工作流，在界面上输入各 Secret 值（敏感项自动打码），
+# Actions 会自动完成：随机密钥 → 双重加密 → 组装配置 → 部署 → 清理。
+#
+# 密码/令牌类字段使用 type: secret，输入内容会被 GitHub 自动掩码，不出现于日志。
+
+on:
+  workflow_dispatch:
+    inputs:
+      CLOUDFLARE_ACCOUNT_ID:
+        description: 'Cloudflare Account ID'
+        required: true
+        default: ''
+      CLOUDFLARE_API_TOKEN:
+        description: 'Cloudflare API Token'
+        required: true
+        type: secret
+      D1_DATABASE_ID:
+        description: 'D1 Database ID'
+        required: true
+        default: ''
+      KV_NAMESPACE_ID:
+        description: 'KV Namespace ID'
+        required: true
+        default: ''
+      SITE_URL:
+        description: 'Site URL (可选, 默认 https://anime.107211.xyz)'
+        required: false
+        default: 'https://anime.107211.xyz'
+      GITHUB_CLIENT_ID:
+        description: 'GitHub OAuth Client ID'
+        required: true
+        default: ''
+      GITHUB_CLIENT_SECRET:
+        description: 'GitHub OAuth Client Secret'
+        required: true
+        type: secret
+      JWT_SECRET:
+        description: 'JWT Secret (任意随机字符串)'
+        required: true
+        type: secret
+      STREAM_API_URL:
+        description: 'Stream API URL (可选, 逗号分隔多源)'
+        required: false
+        default: ''
+      STREAM_ANIKOTO_URL:
+        description: 'AniKoto Stream URL (可选)'
+        required: false
+        default: ''
+
+jobs:
+  deploy:
+    name: Deploy with runtime-encrypted config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: Build runtime config (随机密钥双重加密用户 secret + 组装 wrangler.toml)
+        env:
+          D1_DATABASE_ID: ${{ inputs.D1_DATABASE_ID }}
+          KV_NAMESPACE_ID: ${{ inputs.KV_NAMESPACE_ID }}
+          SITE_URL: ${{ inputs.SITE_URL }}
+          GITHUB_CLIENT_ID: ${{ inputs.GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ inputs.GITHUB_CLIENT_SECRET }}
+          JWT_SECRET: ${{ inputs.JWT_SECRET }}
+          STREAM_API_URL: ${{ inputs.STREAM_API_URL }}
+          STREAM_ANIKOTO_URL: ${{ inputs.STREAM_ANIKOTO_URL }}
+          TEMPLATE: wrangler.template.toml
+          OUTPUT: wrangler.toml
+        run: node scripts/build-config.js
+
+      - name: Initialize D1 Database
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ inputs.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          DB_ID=$(grep -A1 '\[\[d1_databases\]\]' wrangler.toml | grep 'database_id' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+          echo "Initializing D1 schema (db=$DB_ID)..."
+          wrangler d1 execute "$DB_ID" --remote --file=schema.sql 2>&1 \
+            || echo "DB already initialized, continuing..."
+
+      - name: Deploy to Cloudflare Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ inputs.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.CLOUDFLARE_ACCOUNT_ID }}
+        run: wrangler deploy
+
+      - name: Verify
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ inputs.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ inputs.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "=========================================="
+          echo "  ✅ Deploy Complete!"
+          echo "=========================================="
+          echo "  Worker: narumi"
+          echo "  Logs:   wrangler tail narumi"
+          echo "=========================================="
+
+      - name: Cleanup runtime secrets/config
+        if: always()
+        run: |
+          rm -f wrangler.toml
+          echo "已删除运行时生成的临时明文配置（随机密钥随 job 结束销毁）"
