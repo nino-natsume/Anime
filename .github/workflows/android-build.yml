@@ -15,6 +15,9 @@ on:
   release:
     types: [created]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build APK
@@ -97,11 +100,20 @@ jobs:
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Attach APK to Release
-        if: github.event_name == 'release' && steps.build.outcome == 'success'
+      # 发布 APK 到固定 Release (apk-latest): 不过期 + 匿名可下载
+      # 相比 Actions Artifact 更稳定, 每次构建都会覆盖更新
+      - name: Publish APK to Release (apk-latest)
+        if: steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: apk-latest
+          name: Narumi APK (latest)
+          body: |
+            自动构建的最新 Debug APK (WebView 指向 https://anime.107211.xyz)
+            刷新日期: ${{ github.event.head_commit.timestamp }}
           files: android/app/build/outputs/apk/debug/*.apk
+          update_release_body: true
+          fail_on_unmatched_files: false
 
       - name: Report error (visible in check annotations)
         if: steps.build.outcome == 'failure'
@@ -118,6 +130,6 @@ jobs:
           echo "=========================================="
           echo "  APK Build Complete!"
           echo "=========================================="
-          echo "  Artifact: Narumi-Debug-APK"
-          echo "  下载: Actions → 本次运行 → Artifacts"
+          echo "  下载1 (Release, 永久): https://github.com/nino-natsume/Anime/releases/tag/apk-latest"
+          echo "  下载2 (Artifact, 会过期): Actions → 本次运行 → Artifacts"
           echo "=========================================="
