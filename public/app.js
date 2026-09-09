@@ -11,6 +11,32 @@
   const ANIME_BASE = `${API_BASE}/api/anime`;
   const PER_PAGE = 24;
 
+  // 图片加载失败时的占位图 (深色 SVG, 带播放图标)
+  const IMG_FALLBACK =
+    'data:image/svg+xml;charset=utf-8,' +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="360" height="480" viewBox="0 0 360 480">' +
+      '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+      '<stop offset="0" stop-color="#16162a"/><stop offset="1" stop-color="#0a0a0f"/>' +
+      '</linearGradient></defs>' +
+      '<rect width="360" height="480" fill="url(#g)"/>' +
+      '<g fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">' +
+      '<polygon points="150,195 225,240 150,285"/>' +
+      '<circle cx="225" cy="195" r="14"/>' +
+      '</g>' +
+      '<text x="180" y="345" fill="rgba(255,255,255,0.3)" font-family="Arial, sans-serif" font-size="20" font-weight="700" letter-spacing="6" text-anchor="middle">NARUMI</text>' +
+      '</svg>'
+    );
+
+  // Hero 轮播每张 slide 的协调色板 (r,g,b 便于拼 rgba)
+  const HERO_PALETTES = [
+    { a: '0, 212, 255', b: '123, 47, 247' },   // 青 → 紫 (品牌色)
+    { a: '255, 107, 157', b: '196, 77, 255' }, // 粉 → 紫
+    { a: '0, 229, 160', b: '0, 180, 216' },    // 薄荷 → 湖蓝
+    { a: '255, 184, 107', b: '255, 107, 107' },// 琥珀 → 珊瑚红
+    { a: '179, 136, 255', b: '92, 225, 230' }, // 紫罗兰 → 青绿
+  ];
+
   // ─── 状态 ───
   const state = {
     user: null,
@@ -245,7 +271,7 @@
                 ${items.map((a, i) => `
                   <div class="schedule-card" style="animation-delay:${Math.min(i * 0.03, 0.4)}s" onclick="location.hash='#/anime/${a.mal_id}'">
                     <div class="schedule-thumb">
-                      <img src="${a.images?.jpg?.image_url || a.images?.jpg?.large_image_url || ''}" alt="${a.title}" loading="lazy">
+                      <img src="${a.images?.jpg?.image_url || a.images?.jpg?.large_image_url || IMG_FALLBACK}" alt="${a.title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
                     </div>
                     <div class="schedule-info">
                       <div class="schedule-title">${a.title}</div>
@@ -364,16 +390,17 @@
       const episodes = episodesRes.data || [];
 
       const inWatchlist = state.user ? state.watchlistData.some(w => String(w.anime_id) === String(id)) : false;
+      const detailImage = anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || IMG_FALLBACK;
 
       dom.app.innerHTML = `
         <div class="detail-page page-transition">
           <div class="detail-hero">
-            <div class="detail-bg" style="background-image:url('${anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || ''}')"></div>
+            <div class="detail-bg" style="background-image:url('${detailImage}')"></div>
             <div class="detail-bg-overlay"></div>
           </div>
           <div class="detail-content">
             <div class="detail-poster">
-              <img src="${anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url}" alt="${anime.title}" loading="lazy">
+              <img src="${detailImage}" alt="${anime.title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
             </div>
             <div class="detail-info">
               <h1 class="detail-title">
@@ -531,7 +558,7 @@
       container.innerHTML = state.watchlistData.map((item, i) => `
         <div class="watchlist-item" style="animation-delay:${i * 0.05}s">
           <div class="poster" onclick="location.hash='#/anime/${item.anime_id}'">
-            <img src="${item.anime_image || ''}" alt="${item.anime_title}" loading="lazy">
+            <img src="${item.anime_image || IMG_FALLBACK}" alt="${item.anime_title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
           </div>
           <div class="info">
             <div class="title" onclick="location.hash='#/anime/${item.anime_id}'">${item.anime_title}</div>
@@ -558,8 +585,10 @@
     if (!animeList || !animeList.length) return '';
     return `
       <div class="hero" id="hero">
-        ${animeList.slice(0, 5).map((a, i) => `
-          <div class="hero-slide ${i === 0 ? 'active' : ''}" data-index="${i}">
+        ${animeList.slice(0, 5).map((a, i) => {
+          const p = HERO_PALETTES[i % HERO_PALETTES.length];
+          return `
+          <div class="hero-slide ${i === 0 ? 'active' : ''}" data-index="${i}" style="--acc-a:${p.a};--acc-b:${p.b}">
             <div class="hero-bg" style="background-image:url('${a.images?.jpg?.large_image_url || a.images?.jpg?.image_url || ''}')"></div>
             <div class="hero-gradient"></div>
             <div class="hero-content">
@@ -587,7 +616,8 @@
               </div>
             </div>
           </div>
-        `).join('')}
+        `;
+        }).join('')}
         <div class="hero-dots" id="heroDots">
           ${animeList.slice(0, 5).map((_, i) => `<div class="hero-dot ${i === 0 ? 'active' : ''}" data-index="${i}"></div>`).join('')}
         </div>
@@ -597,7 +627,7 @@
 
   function renderAnimeCard(anime, index = 0) {
     const title = anime.title || '未知';
-    const image = anime.images?.jpg?.image_url || '';
+    const image = anime.images?.jpg?.image_url || anime.images?.jpg?.large_image_url || IMG_FALLBACK;
     const score = anime.score;
     const type = anime.type || '';
     const episodes = anime.episodes;
@@ -605,7 +635,7 @@
     return `
       <div class="anime-card" style="animation-delay:${Math.min(index * 0.04, 0.5)}s" onclick="location.hash='#/anime/${anime.mal_id}'">
         <div class="poster">
-          <img src="${image}" alt="${title}" loading="lazy">
+          <img src="${image}" alt="${title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
           <div class="poster-overlay"></div>
           <div class="play-hint">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -665,11 +695,18 @@
     clearInterval(state.heroTimer);
     state.heroIndex = 0;
 
+    // 初始圆点配色与第 1 张 slide 一致
+    const p0 = HERO_PALETTES[0];
+    hero.style.setProperty('--acc-active', `rgb(${p0.a})`);
+
     function goTo(index) {
       slides.forEach(s => s.classList.remove('active'));
       dots.forEach(d => d.classList.remove('active'));
       slides[index]?.classList.add('active');
       dots[index]?.classList.add('active');
+      // 圆点与当前轮播配色保持一致
+      const p = HERO_PALETTES[index % HERO_PALETTES.length];
+      hero.style.setProperty('--acc-active', `rgb(${p.a})`);
       state.heroIndex = index;
     }
 
@@ -764,7 +801,7 @@
       dom.searchResults.innerHTML = results.map((a, i) => `
         <div class="search-result-item" style="animation-delay:${i * 0.05}s" onclick="window.Narumi.closeSearch();location.hash='#/anime/${a.mal_id}'">
           <div class="thumb">
-            <img src="${a.images?.jpg?.image_url || ''}" alt="${a.title}" loading="lazy">
+            <img src="${a.images?.jpg?.image_url || a.images?.jpg?.large_image_url || IMG_FALLBACK}" alt="${a.title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
           </div>
           <div class="info">
             <div class="title">${a.title}</div>
@@ -1106,6 +1143,15 @@
     // 明暗主题
     initTheme();
 
+    // 全局图片兜底: 任何 <img> 加载失败都替换为占位图 (捕获阶段可捕获动态渲染的图片)
+    document.addEventListener('error', (e) => {
+      const t = e.target;
+      if (t && t.tagName === 'IMG' && !t.dataset.fbk) {
+        t.dataset.fbk = '1';
+        if (t.src !== IMG_FALLBACK) t.src = IMG_FALLBACK;
+      }
+    }, true);
+
     // 路由
     window.addEventListener('hashchange', navigate);
 
@@ -1197,6 +1243,7 @@
 
   // ─── 全局 API ───
   window.Narumi = {
+    IMG_FALLBACK,
     showAuth,
     closeSearch: () => dom.searchPanel.classList.remove('show'),
     closeDropdown: () => dom.userDropdown.classList.remove('show'),
@@ -1210,6 +1257,8 @@
   // ─── 启动 ───
   async function init() {
     bindEvents();
+    // 未登录也渲染头像下拉按钮 (登录/注册), 否则点击无任何按钮
+    updateUserUI();
     await checkAuth();
     await navigate();
 

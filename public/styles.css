@@ -594,7 +594,9 @@ img { max-width: 100%; display: block; }
   border-radius: var(--radius-sm);
   overflow: hidden;
   flex-shrink: 0;
-  background: var(--bg-tertiary);
+  background:
+    linear-gradient(135deg, rgba(0, 212, 255, 0.07), rgba(123, 47, 247, 0.07)),
+    var(--bg-tertiary);
 }
 
 .search-result-item .thumb img {
@@ -726,10 +728,16 @@ img { max-width: 100%; display: block; }
 }
 
 .hero-slide {
+  --acc-a: 0, 212, 255;
+  --acc-b: 123, 47, 247;
   position: absolute;
   inset: 0;
   opacity: 0;
   transition: opacity 0.8s var(--ease-in-out);
+  /* 图片加载失败时的色块兜底, 与当前 slide 配色联动 */
+  background:
+    radial-gradient(120% 100% at 20% 30%, rgba(var(--acc-a), 0.16), transparent 60%),
+    linear-gradient(160deg, var(--bg-secondary), var(--bg-primary));
 }
 
 .hero-slide.active { opacity: 1; }
@@ -743,12 +751,18 @@ img { max-width: 100%; display: block; }
   transform: scale(1.1);
 }
 
+/* 渐变底色随轮播 slide 动态换色, 与当前番剧视觉协调 */
 .hero-gradient {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(to right, rgba(10, 10, 15, 0.95) 0%, rgba(10, 10, 15, 0.6) 50%, transparent 100%),
-    linear-gradient(to top, var(--bg-primary) 0%, transparent 40%);
+    linear-gradient(to right,
+      rgba(var(--acc-a), 0.30) 0%,
+      rgba(10, 10, 15, 0.78) 45%,
+      rgba(10, 10, 15, 0.45) 100%),
+    linear-gradient(to top, var(--bg-primary) 0%, transparent 40%),
+    radial-gradient(130% 100% at 12% 35%, rgba(var(--acc-a), 0.20), transparent 60%),
+    radial-gradient(130% 100% at 88% 72%, rgba(var(--acc-b), 0.15), transparent 60%);
 }
 
 .hero-content {
@@ -772,11 +786,11 @@ img { max-width: 100%; display: block; }
   gap: 6px;
   padding: 5px 14px;
   border-radius: var(--radius-full);
-  background: rgba(0, 212, 255, 0.12);
-  border: 1px solid rgba(0, 212, 255, 0.2);
+  background: rgba(var(--acc-a), 0.14);
+  border: 1px solid rgba(var(--acc-a), 0.28);
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--accent-primary);
+  color: rgb(var(--acc-a));
   margin-bottom: 16px;
   animation: fadeSlideUp 0.5s var(--ease-out) 0.1s both;
 }
@@ -855,11 +869,22 @@ img { max-width: 100%; display: block; }
 }
 
 .hero-dot.active {
-  background: var(--accent-primary);
+  background: var(--acc-active, var(--accent-primary));
   width: 24px;
   border-radius: 4px;
   box-shadow: 0 0 10px rgba(0, 212, 255, 0.4);
 }
+
+/* 亮色主题下 Hero 文字强制浅色, 与深色渐变底协调, 避免深色文字看不清 */
+[data-theme="light"] .hero-title,
+[data-theme="light"] .hero-title-en,
+[data-theme="light"] .hero-synopsis,
+[data-theme="light"] .hero-meta-item {
+  color: #f0f0f5;
+}
+[data-theme="light"] .hero-title-en { color: rgba(240, 240, 245, 0.6); }
+[data-theme="light"] .hero-synopsis,
+[data-theme="light"] .hero-meta-item { color: rgba(240, 240, 245, 0.85); }
 
 /* ── 按钮系统 ── */
 .btn-primary {
@@ -1019,6 +1044,10 @@ img { max-width: 100%; display: block; }
   aspect-ratio: 3/4;
   overflow: hidden;
   position: relative;
+  /* 图片未加载/加载失败时的占位底色 */
+  background:
+    linear-gradient(135deg, rgba(0, 212, 255, 0.07), rgba(123, 47, 247, 0.07)),
+    var(--bg-tertiary);
 }
 
 .anime-card .poster img {
@@ -1163,6 +1192,11 @@ img { max-width: 100%; display: block; }
 .detail-poster {
   width: 240px;
   flex-shrink: 0;
+  /* 图片未加载/加载失败时的占位底色 */
+  background:
+    linear-gradient(135deg, rgba(0, 212, 255, 0.07), rgba(123, 47, 247, 0.07)),
+    var(--bg-tertiary);
+  border-radius: var(--radius-lg);
 }
 
 .detail-poster img {
@@ -1536,6 +1570,10 @@ img { max-width: 100%; display: block; }
   border-radius: var(--radius-sm);
   overflow: hidden;
   flex-shrink: 0;
+  /* 图片未加载/加载失败时的占位底色 */
+  background:
+    linear-gradient(135deg, rgba(0, 212, 255, 0.07), rgba(123, 47, 247, 0.07)),
+    var(--bg-tertiary);
 }
 
 .watchlist-item .poster img {
@@ -2186,7 +2224,10 @@ img { max-width: 100%; display: block; }
   border-radius: var(--radius-sm);
   overflow: hidden;
   flex-shrink: 0;
-  background: var(--bg-tertiary);
+  /* 图片未加载/加载失败时的占位底色 */
+  background:
+    linear-gradient(135deg, rgba(0, 212, 255, 0.07), rgba(123, 47, 247, 0.07)),
+    var(--bg-tertiary);
 }
 .schedule-thumb img {
   width: 100%;
