@@ -10,17 +10,6 @@ Cloudflare Workers + D1 + KV 构建的日漫追番平台，Push 自动部署。
 - 用户系统（注册 / 登录 / GitHub OAuth）
 - 暗色毛玻璃 UI，全端适配
 
-## 技术栈
-
-| 层级 | 技术 |
-|------|------|
-| 运行时 | Cloudflare Workers |
-| 前端 | Vanilla JS SPA |
-| 数据库 | Cloudflare D1 |
-| 缓存 | Cloudflare KV |
-| 数据 | Bangumi API |
-| 认证 | JWT + GitHub OAuth |
-
 ## 部署
 
 打开 GitHub 仓库 → **Actions** → **Manual Deploy (手动部署 · 输入 Secret 即可)** → **Run workflow**，在弹出的表单里填入 Secret 值：
@@ -41,9 +30,7 @@ Cloudflare Workers + D1 + KV 构建的日漫追番平台，Push 自动部署。
 
 ## Android APK
 
-GitHub Actions 自动构建，见 `android/README.md`。
-
-可在 Release 内下载
+GitHub Actions 自动构建，可在 [Release](https://github.com/nino-natsume/Anime/releases) 内下载
 
 ## License
 
