@@ -37,6 +37,18 @@
     { a: '179, 136, 255', b: '92, 225, 230' }, // 紫罗兰 → 青绿
   ];
 
+  // 图片来源统一走 Worker 代理, 绕过源站防盗链/混合内容/直连失败
+  function imgProxy(url) {
+    if (!url) return '';
+    // 已是代理地址 / data URI / blob, 直接返回
+    if (url.startsWith('data:') || url.startsWith('blob:') || url.includes('/api/img?')) return url;
+    try {
+      return `${API_BASE}/api/img?url=${encodeURIComponent(url)}`;
+    } catch {
+      return url;
+    }
+  }
+
   // ─── 状态 ───
   const state = {
     user: null,
@@ -271,7 +283,7 @@
                 ${items.map((a, i) => `
                   <div class="schedule-card" style="animation-delay:${Math.min(i * 0.03, 0.4)}s" onclick="location.hash='#/anime/${a.mal_id}'">
                     <div class="schedule-thumb">
-                      <img src="${a.images?.jpg?.image_url || a.images?.jpg?.large_image_url || IMG_FALLBACK}" alt="${a.title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
+                      <img src="${imgProxy(a.images?.jpg?.image_url || a.images?.jpg?.large_image_url) || IMG_FALLBACK}" alt="${a.title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
                     </div>
                     <div class="schedule-info">
                       <div class="schedule-title">${a.title}</div>
@@ -390,7 +402,7 @@
       const episodes = episodesRes.data || [];
 
       const inWatchlist = state.user ? state.watchlistData.some(w => String(w.anime_id) === String(id)) : false;
-      const detailImage = anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || IMG_FALLBACK;
+      const detailImage = imgProxy(anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url) || IMG_FALLBACK;
 
       dom.app.innerHTML = `
         <div class="detail-page page-transition">
@@ -558,7 +570,7 @@
       container.innerHTML = state.watchlistData.map((item, i) => `
         <div class="watchlist-item" style="animation-delay:${i * 0.05}s">
           <div class="poster" onclick="location.hash='#/anime/${item.anime_id}'">
-            <img src="${item.anime_image || IMG_FALLBACK}" alt="${item.anime_title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
+            <img src="${imgProxy(item.anime_image) || IMG_FALLBACK}" alt="${item.anime_title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
           </div>
           <div class="info">
             <div class="title" onclick="location.hash='#/anime/${item.anime_id}'">${item.anime_title}</div>
@@ -589,7 +601,7 @@
           const p = HERO_PALETTES[i % HERO_PALETTES.length];
           return `
           <div class="hero-slide ${i === 0 ? 'active' : ''}" data-index="${i}" style="--acc-a:${p.a};--acc-b:${p.b}">
-            <div class="hero-bg" style="background-image:url('${a.images?.jpg?.large_image_url || a.images?.jpg?.image_url || ''}')"></div>
+            <div class="hero-bg" style="background-image:url('${imgProxy(a.images?.jpg?.large_image_url || a.images?.jpg?.image_url) || ''}')"></div>
             <div class="hero-gradient"></div>
             <div class="hero-content">
               <div class="hero-info">
@@ -627,7 +639,7 @@
 
   function renderAnimeCard(anime, index = 0) {
     const title = anime.title || '未知';
-    const image = anime.images?.jpg?.image_url || anime.images?.jpg?.large_image_url || IMG_FALLBACK;
+    const image = imgProxy(anime.images?.jpg?.image_url || anime.images?.jpg?.large_image_url) || IMG_FALLBACK;
     const score = anime.score;
     const type = anime.type || '';
     const episodes = anime.episodes;
@@ -801,7 +813,7 @@
       dom.searchResults.innerHTML = results.map((a, i) => `
         <div class="search-result-item" style="animation-delay:${i * 0.05}s" onclick="window.Narumi.closeSearch();location.hash='#/anime/${a.mal_id}'">
           <div class="thumb">
-            <img src="${a.images?.jpg?.image_url || a.images?.jpg?.large_image_url || IMG_FALLBACK}" alt="${a.title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
+            <img src="${imgProxy(a.images?.jpg?.image_url || a.images?.jpg?.large_image_url) || IMG_FALLBACK}" alt="${a.title}" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
           </div>
           <div class="info">
             <div class="title">${a.title}</div>

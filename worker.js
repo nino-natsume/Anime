@@ -79,6 +79,11 @@ export default {
         return handleAddHistory(request, env, corsHeaders);
       }
 
+      // 图片代理 (绕过 lain.bgm.tv 防盗链 / 混合内容 / 直连失败)
+      if (path === '/api/img' && method === 'GET') {
+        return handleImageProxy(request, env, ctx, corsHeaders);
+      }
+
       // Bangumi API 代理 (中文数据, 带 KV 缓存)
       if (path.startsWith('/api/anime/')) {
         return handleAnimeProxy(request, env, corsHeaders);
@@ -643,6 +648,89 @@ async function bgmFetch(path, retries = 2) {
     throw new Error(`Bangumi ${res.status}: ${errText.slice(0, 200)}`);
   }
   return res.json();
+}
+
+// ─── 图片代理 ───
+// 前端直接 <img src="https://lain.bgm.tv/..."> 会被源站防盗链/直连限制拦截,
+// 这里由 Worker 服务端抓取后透传, 支持 Cloudflare 边缘缓存。
+const IMG_ALLOWED_HOSTS = [
+  'lain.bgm.tv',
+  'bgm.tv',
+  'cdn.myanimelist.net',
+  's4.anilist.co',
+  'up.enterdesk.com',
+];
+
+const IMG_PROXY_CACHE_HEADERS = {
+  'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+};
+
+async function handleImageProxy(request, env, ctx, corsHeaders) {
+  const url = new URL(request.url);
+  const target = url.searchParams.get('url');
+  if (!target) {
+    return new Response('Missing url', { status: 400, headers: corsHeaders });
+  }
+
+  // 校验协议与域名, 防止 SSRF
+  let imgUrl;
+  try {
+    imgUrl = new URL(target);
+  } catch {
+    return new Response('Bad url', { status: 400, headers: corsHeaders });
+  }
+  if (!/^https?:$/.test(imgUrl.protocol)) {
+    return new Response('Bad protocol', { status: 400, headers: corsHeaders });
+  }
+  if (!IMG_ALLOWED_HOSTS.some(h => imgUrl.hostname === h || imgUrl.hostname.endsWith('.' + h))) {
+    return new Response('Forbidden host', { status: 403, headers: corsHeaders });
+  }
+
+  // Cloudflare 边缘缓存
+  const cache = caches.default;
+  const cacheKey = new Request(imgUrl.toString(), { method: 'GET' });
+  try {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const headers = new Headers(cached.headers);
+      headers.set('Access-Control-Allow-Origin', '*');
+      headers.set('Cache-Control', IMG_PROXY_CACHE_HEADERS['Cache-Control']);
+      return new Response(cached.body, { status: cached.status, headers });
+    }
+  } catch (e) {
+    // 缓存不可用, 忽略
+  }
+
+  try {
+    const resp = await fetch(imgUrl.toString(), {
+      headers: {
+        'User-Agent': 'Narumi-Anime-Tracker/1.0 (image proxy)',
+        'Referer': 'https://bgm.tv/',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      },
+    });
+    if (!resp.ok) {
+      return new Response(`Upstream error: ${resp.status}`, { status: resp.status, headers: corsHeaders });
+    }
+
+    const body = await resp.arrayBuffer();
+    const outHeaders = {
+      'Content-Type': resp.headers.get('Content-Type') || 'image/jpeg',
+      'Cache-Control': IMG_PROXY_CACHE_HEADERS['Cache-Control'],
+      'Access-Control-Allow-Origin': '*',
+      'X-Image-Source': imgUrl.hostname,
+    };
+    const out = new Response(body, { status: 200, headers: outHeaders });
+
+    // 异步写入边缘缓存
+    ctx.waitUntil(
+      cache.put(cacheKey, new Response(body, { headers: outHeaders })).catch(() => {})
+    );
+
+    return out;
+  } catch (err) {
+    return new Response(`Image proxy error: ${err.message}`, { status: 502, headers: corsHeaders });
+  }
 }
 
 async function handleAnimeProxy(request, env, corsHeaders) {
