@@ -32,8 +32,8 @@ Cloudflare Workers + D1 + KV 构建的日漫追番平台，Push 自动部署。
 | `D1_DATABASE_ID` | 文本 | D1 数据库 ID（必填） |
 | `KV_NAMESPACE_ID` | 文本 | KV 命名空间 ID（必填） |
 | `SITE_URL` | 文本 | 站点地址（可选） |
-| `GITHUB_CLIENT_ID` | 文本 | GitHub OAuth Client ID（必填） |
-| `GITHUB_CLIENT_SECRET` | 密文 | GitHub OAuth Client Secret（必填，自动打码） |
+| `CLIENT_ID` | 文本 | GitHub OAuth Client ID（必填） |
+| `CLIENT_SECRET` | 密文 | GitHub OAuth Client Secret（必填，自动打码） |
 | `JWT_SECRET` | 密文 | JWT 签名密钥（必填，自动打码） |
 | `STREAM_API_URL` / `STREAM_ANIKOTO_URL` | 文本 | 参考[AniKotoAPI](https://github.com/Shineii86/AniKotoAPI)，部署后填入 |
 

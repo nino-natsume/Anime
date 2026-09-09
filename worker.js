@@ -301,7 +301,7 @@ async function handleLogin(request, env, corsHeaders) {
 }
 
 async function handleGithubAuth(env, corsHeaders) {
-  const clientId = env.GITHUB_CLIENT_ID;
+  const clientId = env.CLIENT_ID;
   if (!clientId) {
     return jsonResponse({ error: 'GitHub OAuth 未配置' }, 500, corsHeaders);
   }
@@ -329,8 +329,8 @@ async function handleGithubCallback(request, env, corsHeaders) {
         'Accept': 'application/json',
       },
       body: JSON.stringify({
-        client_id: env.GITHUB_CLIENT_ID,
-        client_secret: env.GITHUB_CLIENT_SECRET,
+        client_id: env.CLIENT_ID,
+        client_secret: env.CLIENT_SECRET,
         code,
       }),
     });

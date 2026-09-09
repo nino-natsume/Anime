@@ -3,6 +3,10 @@ name: D1 Reset (清空数据库)
 on:
   workflow_dispatch:
     inputs:
+      D1_DATABASE_ID:
+        description: 'D1 Database ID'
+        required: true
+        default: ''
       confirm:
         description: '输入 RESET 确认清空全部用户/追番/历史数据'
         required: true
@@ -20,31 +24,13 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler
 
-      - name: Build runtime config (随机密钥双重加密用户 secret + 组装 wrangler.toml)
-        env:
-          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
-          KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
-          SITE_URL: ${{ secrets.SITE_URL }}
-          GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
-          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          STREAM_API_URL: ${{ secrets.STREAM_API_URL }}
-          STREAM_ANIKOTO_URL: ${{ secrets.STREAM_ANIKOTO_URL }}
-          TEMPLATE: wrangler.template.toml
-          OUTPUT: wrangler.toml
-        run: node scripts/build-config.js
-
       - name: Wipe D1 tables (users / watchlist / watch_history)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          DB_ID=$(grep -A1 '\[\[d1_databases\]\]' wrangler.toml | grep 'database_id' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-          echo "清空 users / watchlist / watch_history ..."
+          DB_ID="${{ inputs.D1_DATABASE_ID }}"
+          echo "清空 users / watchlist / watch_history (db=$DB_ID) ..."
           wrangler d1 execute "$DB_ID" --remote --command "DELETE FROM watch_history; DELETE FROM watchlist; DELETE FROM users; DELETE FROM sqlite_sequence WHERE name IN ('users','watchlist','watch_history');"
           echo "验证剩余行数:"
           wrangler d1 execute "$DB_ID" --remote --command "SELECT 'users' AS tbl, COUNT(*) AS cnt FROM users UNION ALL SELECT 'watchlist', COUNT(*) FROM watchlist UNION ALL SELECT 'watch_history', COUNT(*) FROM watch_history;"
-
-      - name: Cleanup runtime secrets/config
-        if: always()
-        run: rm -f wrangler.toml

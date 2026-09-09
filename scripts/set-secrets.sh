@@ -55,11 +55,11 @@ set_secret "KV_NAMESPACE_ID" "$KV_ID"
 read -rsp "请输入 SITE_URL (回车跳过): " SITE; echo
 set_secret "SITE_URL" "$SITE"
 
-read -rsp "请输入 GITHUB_CLIENT_ID (回车跳过): " GH_ID; echo
-set_secret "GITHUB_CLIENT_ID" "$GH_ID"
+read -rsp "请输入 CLIENT_ID (GITHUB_ 前綴已被移除, 因为 GitHub 保留 GITHUB_ 前缀; 回车跳过): " GH_ID; echo
+set_secret "CLIENT_ID" "$GH_ID"
 
-read -rsp "请输入 GITHUB_CLIENT_SECRET (回车跳过): " GH_SECRET; echo
-set_secret "GITHUB_CLIENT_SECRET" "$GH_SECRET"
+read -rsp "请输入 CLIENT_SECRET (回车跳过): " GH_SECRET; echo
+set_secret "CLIENT_SECRET" "$GH_SECRET"
 
 read -rsp "请输入 JWT_SECRET (回车跳过): " JWT; echo
 set_secret "JWT_SECRET" "$JWT"
