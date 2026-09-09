@@ -25,22 +25,34 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install SDK packages (platform 34 + build-tools)
+      # 自包含 SDK 安装: 不依赖第三方 action, 全程可控
+      - name: Set up Android SDK (cmdline-tools)
         run: |
-          # setup-android 可能未把 sdkmanager 加入 PATH, 显式指定完整路径更稳
+          set -e
+          SDK_DIR="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$SDK_DIR/cmdline-tools"
+          wget -q "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -O /tmp/clt.zip
+          unzip -q /tmp/clt.zip -d "$SDK_DIR/cmdline-tools"
+          mv "$SDK_DIR/cmdline-tools/cmdline-tools" "$SDK_DIR/cmdline-tools/latest"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "$SDK_DIR/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept licenses + Install SDK packages
+        run: |
+          set -e
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
-          command -v sdkmanager >/dev/null 2>&1 && SDKMANAGER="sdkmanager" || true
-          yes | "$SDKMANAGER" --licenses || true
-          "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME" > /dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
+          echo "--- licenses dir ---"
+          ls "$ANDROID_HOME/licenses/" 2>/dev/null || echo "NO licenses dir!"
+          echo "--- sdk content ---"
+          ls "$ANDROID_HOME"
 
       - name: Set up Gradle 8.5
         run: |
@@ -51,24 +63,50 @@ jobs:
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
+      # 构建 + 完整日志 (失败也上传, 便于定位)
       - name: Build Debug APK (可安装)
+        id: build
         working-directory: android
-        run: gradle assembleDebug --no-daemon
+        continue-on-error: true
+        run: |
+          echo "=== java ==="; java -version 2>&1 | head -2
+          echo "=== gradle ==="; gradle --version | head -6
+          echo "=== local.properties ==="; cat local.properties
+          echo "=== assembleDebug ==="
+          gradle assembleDebug --stacktrace --no-daemon --console=plain 2>&1 | tee /tmp/build.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          if-no-files-found: ignore
 
       - name: Upload Debug APK
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Narumi-Debug-APK
           path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
 
       # 发布 Release 时把 APK 挂到 Release 附件
       - name: Attach APK to Release
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' && steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v2
         with:
           files: android/app/build/outputs/apk/debug/*.apk
 
+      - name: Fail on build error
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "::error::Gradle build failed - download 'build-log' artifact for details"
+          exit 1
+
       - name: Summary
+        if: steps.build.outcome == 'success'
         run: |
           echo "=========================================="
           echo "  ✅ APK Build Complete!"
