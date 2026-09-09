@@ -2284,3 +2284,77 @@ img { max-width: 100%; display: block; }
     padding: 24px 16px;
   }
 }
+
+/* ── 补充响应式: 紧凑小屏 (≤640px) ── */
+@media (max-width: 640px) {
+  /* 导航栏压缩 */
+  .navbar-inner { padding: 0 12px; gap: 8px; }
+  .nav-actions { gap: 4px; }
+  .nav-logo { gap: 8px; }
+
+  /* 搜索面板更贴顶, 减少滚动距离 */
+  .search-panel { padding-top: 72px; }
+  .search-panel-inner { padding: 0 16px; }
+  .search-input-wrapper { padding: 12px 16px; }
+  .search-input { font-size: 1rem; }
+  .search-shortcut { display: none; }
+
+  /* Hero 紧凑 */
+  .hero-content { padding: 0 20px; }
+  .hero-title { font-size: 1.45rem; }
+  .hero-meta { gap: 10px; }
+  .hero-meta-item { font-size: 0.78rem; }
+  .hero-actions .btn-primary,
+  .hero-actions .btn-secondary { padding: 10px 18px; font-size: 0.82rem; }
+
+  /* 区块 */
+  .section { padding: 36px 16px; }
+  .section-header { margin-bottom: 18px; }
+  .section-title { font-size: 1.2rem; }
+
+  /* 详情页紧凑 */
+  .detail-hero { height: 280px; }
+  .detail-content { padding: 0 16px; margin-top: -110px; }
+  .detail-poster { width: 112px; }
+  .detail-title { font-size: 1.3rem; }
+  .detail-synopsis { font-size: 0.85rem; }
+  .detail-meta-tag { font-size: 0.75rem; padding: 4px 10px; }
+  .episodes-section { padding: 20px 16px; }
+  .episodes-grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+
+  /* 播放器紧凑 */
+  .player-header { gap: 8px; padding: 10px 12px; }
+  .player-back { padding: 6px 10px; }
+  .player-episodes { padding: 12px; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 6px; }
+  .player-ep-btn { padding: 9px 8px; font-size: 0.75rem; }
+}
+
+/* ── 补充响应式: 超窄屏 (≤380px) ── */
+@media (max-width: 380px) {
+  .logo-text { font-size: 0.95rem; letter-spacing: 0.1em; }
+  .hero { height: 300px; }
+  .hero-title { font-size: 1.2rem; }
+  .hero-synopsis { -webkit-line-clamp: 2; }
+
+  .anime-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .anime-card .card-info { padding: 6px; }
+  .anime-card .card-meta { font-size: 0.68rem; gap: 4px; }
+
+  .watchlist-page { padding: 20px 12px; }
+  .watchlist-item .title { font-size: 0.9rem; }
+
+  .player-title { font-size: 0.85rem; }
+  .player-episode-info { font-size: 0.72rem; }
+  .player-episodes { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+}
+
+/* ── 移动端底部导航安全区 (iPhone 全面屏刘海/手势条) ── */
+@media (max-width: 768px) {
+  .main-content { padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 16px); }
+}
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .bottom-nav {
+    height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

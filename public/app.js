@@ -851,19 +851,22 @@
     iframe.src = '';
 
     // 1) 通过标题搜索 gogoanime 番剧 ID, 获取剧集列表
-    fetch(`${API_BASE}/api/stream/info/${animeId}-episode-${episode}?q=${encodeURIComponent(title || '')}`)
+    // 15 秒超时, 避免上游源慢响应一直转圈
+    fetch(`${API_BASE}/api/stream/info/${animeId}-episode-${episode}?q=${encodeURIComponent(title || '')}`, { signal: AbortSignal.timeout(15000) })
       .then(r => r.json())
       .then(data => {
         if (data.episodes && data.episodes.length) {
-          // 2) 找到对应的播放集数
-          const ep = data.episodes.find(e => parseInt(e.number) === episode) || data.episodes[episode - 1];
-          if (!ep?.id) throw new Error('no_source');
+          // 2) 找到对应的播放集数; 找不到则回退到最后一集(可能是 OVA/特别篇列表, 至少能播)
+          const ep = data.episodes.find(e => parseInt(e.number) === episode)
+            || data.episodes[episode - 1]
+            || data.episodes[data.episodes.length - 1];
+          if (!ep?.id) throw new Error(data.error || 'no_source');
 
           renderPlayerEpisodes(animeId, episode, title, data.episodes);
 
-          return fetch(`${API_BASE}/api/stream/episode/${encodeURIComponent(ep.id)}`);
+          return fetch(`${API_BASE}/api/stream/episode/${encodeURIComponent(ep.id)}`, { signal: AbortSignal.timeout(15000) });
         }
-        throw new Error('no_source');
+        throw new Error(data.error || 'no_source');
       })
       .then(r => r.json())
       .then(data => {
@@ -875,13 +878,14 @@
             return;
           }
         }
+        if (data.error) throw new Error(data.error);
         throw new Error('no_source');
       })
-      .catch(() => {
-        // 降级: 显示流媒体源不可用提示
+      .catch(err => {
+        // 降级: 显示流媒体源不可用提示 (保留上游返回的具体错误信息)
         $('#playerLoading').innerHTML = `
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-          <p>流媒体源暂时不可用</p>
+          <p>${(err && err.message && err.message !== 'no_source') ? err.message : '流媒体源暂时不可用'}</p>
           <p style="font-size:0.75rem;margin-top:4px">可配置 STREAM_API_URL 环境变量接入流媒体 API</p>
         `;
         renderPlayerEpisodes(animeId, episode, title, null);

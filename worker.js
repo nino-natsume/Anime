@@ -916,6 +916,12 @@ async function handleStreamProxy(request, env, corsHeaders) {
     'Accept': 'application/json',
   };
 
+  // consumet 分支请求统一 6 秒超时, 避免死源/慢源拖垮链路
+  const streamFetchOpts = (options = {}) => ({
+    ...options,
+    signal: AbortSignal.timeout(6000),
+  });
+
   // ── 获取番剧剧集列表: /info/{animeId}-episode-{ep}?q=标题(可选) ──
   const infoMatch = path.match(/^\/info\/(\d+)-episode-(\d+)$/);
   if (infoMatch) {
@@ -936,7 +942,7 @@ async function handleStreamProxy(request, env, corsHeaders) {
     let searchError = '标题为空, 无法搜索';
     const searchResult = await tryStreamUpstreams(env, async (base) => {
       if (!title) return null;
-      const res = await fetch(`${base}/search/${encodeURIComponent(title)}?page=1`, { headers: streamHeaders });
+      const res = await fetch(`${base}/search/${encodeURIComponent(title)}?page=1`, streamFetchOpts({ headers: streamHeaders }));
       if (res.ok) {
         const data = await res.json();
         const results = data?.results || [];
@@ -962,7 +968,7 @@ async function handleStreamProxy(request, env, corsHeaders) {
     let infoData = null;
     let infoUpstream = null;
     const infoResult = await tryStreamUpstreams(env, async (base) => {
-      const res = await fetch(`${base}/info/${gogoId}`, { headers: streamHeaders });
+      const res = await fetch(`${base}/info/${gogoId}`, streamFetchOpts({ headers: streamHeaders }));
       if (res.ok) {
         const data = await res.json();
         const episodes = (data?.episodes || []).map(ep => ({
@@ -1000,7 +1006,7 @@ async function handleStreamProxy(request, env, corsHeaders) {
     let watchData = null;
     let watchUpstream = null;
     const watchResult = await tryStreamUpstreams(env, async (base) => {
-      const res = await fetch(`${base}/watch/${encodeURIComponent(episodeId)}`, { headers: streamHeaders });
+      const res = await fetch(`${base}/watch/${encodeURIComponent(episodeId)}`, streamFetchOpts({ headers: streamHeaders }));
       if (res.ok) {
         watchData = await res.json();
         watchUpstream = base;
@@ -1031,6 +1037,8 @@ async function handleStreamProxyAnikoto(request, env, corsHeaders) {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
     'Accept': 'application/json',
   };
+  // AniKoto 请求统一 8 秒超时, 避免上游慢响应挂起 Worker
+  const fetchOpts = (h) => ({ headers: { ...headers, ...h }, signal: AbortSignal.timeout(8000) });
 
   // ── 获取番剧剧集列表: /info/{bgmId}-episode-{ep}?q=标题 ──
   const infoMatch = path.match(/^\/info\/(\d+)-episode-(\d+)$/);
@@ -1049,19 +1057,88 @@ async function handleStreamProxyAnikoto(request, env, corsHeaders) {
       const q = search.get('q') || '';
       if (q && !titles.includes(q)) titles.push(q);
 
-      // 逐个标题搜 AniKoto 拿 animeId
+      // AniKoto 搜索选择策略:
+      //  问题1: 日文假名搜索(ワンピース)命中不到英文索引的 TV 主条目, 第一页全是特别篇/剧场版
+      //  问题2: 主条目 type=TV 且集数最多, 剧场版/OVA 通常只有 1 集
+      //  方案: ①精确包含命中优先(标题含目标词)
+      //        ②无精确命中时选 TV/集数最多
+      //        ③仍非主条目(TV 或 >5集)时, 从结果标题推导最长公共英文前缀并重搜 TV 主条目
+      const norm = (s) => (s || '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+      const limit = (x) => (parseInt(x.sub, 10) || 0) + (parseInt(x.dub, 10) || 0);
+      const isMain = (h) => h && (h.type === 'TV' || limit(h) > 5);
+
+      // 精确命中: 标题/日文名 完全相等或包含目标词
+      const pickExact = (list, target) => {
+        if (!target) return null;
+        const eq = list.find(r => norm(r.title) === target || norm(r.japaneseTitle || '') === target);
+        if (eq) return eq;
+        return list.find(r => norm(r.title).includes(target) || norm(r.japaneseTitle || '').includes(target)) || null;
+      };
+
+      // 主条目: TV 且集数最多 -> 集数最多 -> 第一个 TV -> 第一项
+      const pickTv = (list) => {
+        const sorted = list.slice().sort((a, b) => limit(b) - limit(a));
+        return sorted.find(x => x.type === 'TV' && limit(x) > 0)
+          || sorted.find(x => limit(x) > 0)
+          || list.find(x => x.type === 'TV')
+          || list[0];
+      };
+
+      // 从一批结果标题(英文)里提取最长公共前缀, 如ワンピース->[One Piece: xxx...]->"one piece"
+      const commonTitlePrefix = (list) => {
+        const counts = new Map();
+        for (const r of list) {
+          const words = (r.title || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+          for (let n = 1; n <= Math.min(3, words.length); n++) {
+            const key = words.slice(0, n).join(' ');
+            counts.set(key, (counts.get(key) || 0) + 1);
+          }
+        }
+        const threshold = Math.max(2, Math.floor(list.length * 0.5));
+        const multi = [...counts.keys()]
+          .filter(k => k.includes(' ') && counts.get(k) >= threshold)
+          .sort((a, b) => counts.get(b) - counts.get(a));
+        if (multi.length) return multi[0];
+        const single = [...counts.keys()]
+          .filter(k => !k.includes(' ') && counts.get(k) >= threshold && k.length >= 3)
+          .sort((a, b) => counts.get(b) - counts.get(a));
+        return single[0] || '';
+      };
+
       let animeId = null;
+      let matchedTitle = '';
       for (const t of titles) {
-        const res = await fetch(`${base}/api/search?keyword=${encodeURIComponent(t)}`, { headers });
+        if (!t) continue;
+        const res = await fetch(`${base}/api/search?keyword=${encodeURIComponent(t)}`, fetchOpts());
         if (!res.ok) continue;
         const data = await res.json();
         const list = data?.results?.data || [];
         if (!list.length) continue;
-        const norm = (s) => (s || '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
-        const target = norm(t).slice(0, 10);
-        const hit = list.find(r =>
-          norm(r.title).includes(target) || norm(r.japaneseTitle || '').includes(target));
+        const target = norm(t);
+
+        // ① 精确命中直接采用 (尊重用户想看的具体条目, 即使是剧场版/OVA)
+        let hit = pickExact(list, target);
+        let isExact = !!hit;
+        if (!hit) hit = pickTv(list);
+
+        // ② 无精确命中且当前命中不是主条目 -> 推导英文前缀重搜 TV 主条目
+        if (!isExact && hit && !isMain(hit)) {
+          const en = commonTitlePrefix(list);
+          if (en && norm(en) !== target) {
+            const res2 = await fetch(`${base}/api/search?keyword=${encodeURIComponent(en)}`, fetchOpts());
+            if (res2.ok) {
+              const d2 = await res2.json();
+              const list2 = d2?.results?.data || [];
+              if (list2.length) {
+                const hit2 = pickTv(list2);
+                if (hit2 && isMain(hit2)) hit = hit2;
+              }
+            }
+          }
+        }
+
         animeId = hit?.animeId || list[0].animeId;
+        matchedTitle = hit?.title || list[0].title || '';
         if (animeId) break;
       }
       if (!animeId) {
@@ -1069,7 +1146,7 @@ async function handleStreamProxyAnikoto(request, env, corsHeaders) {
       }
 
       // 拉剧集列表
-      const epRes = await fetch(`${base}/api/episodes/${animeId}`, { headers });
+      const epRes = await fetch(`${base}/api/episodes/${animeId}`, fetchOpts());
       if (!epRes.ok) {
         return jsonResponse({ error: '剧集列表获取失败, 流媒体源不可用', fallback: true }, epRes.status, corsHeaders);
       }
@@ -1086,6 +1163,7 @@ async function handleStreamProxyAnikoto(request, env, corsHeaders) {
       return jsonResponse({
         episodes,
         anikoto_anime_id: animeId,
+        anikoto_title: matchedTitle,
         target_episode: targetEp,
         upstream: base,
       }, 200, corsHeaders);
@@ -1097,10 +1175,17 @@ async function handleStreamProxyAnikoto(request, env, corsHeaders) {
   // ── 获取播放源: /episode/{serverIds} ──
   const epMatch = path.match(/^\/episode\/(.+)$/);
   if (epMatch) {
-    const serverIds = epMatch[1];
+    // 前端会 encodeURIComponent(server_ids), URL.pathname 保持编码态,
+    // 必须解码回原始 base64, 避免二次编码导致 AniKoto 无法识别
+    let serverIds;
+    try {
+      serverIds = decodeURIComponent(epMatch[1]);
+    } catch {
+      serverIds = epMatch[1];
+    }
     try {
       // 1) 由 server_ids 拿服务器列表
-      const svRes = await fetch(`${base}/api/servers?ids=${encodeURIComponent(serverIds)}`, { headers });
+      const svRes = await fetch(`${base}/api/servers?ids=${encodeURIComponent(serverIds)}`, fetchOpts());
       if (!svRes.ok) {
         return jsonResponse({ error: '播放源获取失败, 流媒体源不可用', fallback: true }, svRes.status, corsHeaders);
       }
@@ -1112,7 +1197,7 @@ async function handleStreamProxyAnikoto(request, env, corsHeaders) {
       }
 
       // 2) 拿播放器页面 URL
-      const stRes = await fetch(`${base}/api/stream?id=${encodeURIComponent(sub.link_id)}`, { headers });
+      const stRes = await fetch(`${base}/api/stream?id=${encodeURIComponent(sub.link_id)}`, fetchOpts());
       if (!stRes.ok) {
         return jsonResponse({ error: '播放源获取失败, 流媒体源不可用', fallback: true }, stRes.status, corsHeaders);
       }
