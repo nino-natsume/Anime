@@ -35,8 +35,12 @@ jobs:
 
       - name: Install SDK packages (platform 34 + build-tools)
         run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-          yes | sdkmanager --licenses || true
+          # setup-android 可能未把 sdkmanager 加入 PATH, 显式指定完整路径更稳
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
+          command -v sdkmanager >/dev/null 2>&1 && SDKMANAGER="sdkmanager" || true
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
       - name: Set up Gradle 8.5
         run: |
