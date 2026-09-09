@@ -1389,12 +1389,14 @@
     bindEvents();
     // 未登录也渲染头像下拉按钮 (登录/注册), 否则点击无任何按钮
     updateUserUI();
-    await checkAuth();
-    await navigate();
 
-    // 隐藏加载动画
-    await delay(600);
+    // 零白屏: 立即渲染首屏, 同步隐藏加载动画, 不等网络请求
     dom.loader.classList.add('hidden');
+    dom.app.innerHTML = renderSkeletonHome();
+    document.body.classList.remove('no-scroll');
+
+    // 后台并行做认证 + 路由渲染, 不阻塞首屏
+    Promise.allSettled([checkAuth(), navigate()]);
   }
 
   // 开始

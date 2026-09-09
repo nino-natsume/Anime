@@ -133,6 +133,7 @@ img { max-width: 100%; display: block; }
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+  transition: none;
 }
 
 .loader-content { text-align: center; }
