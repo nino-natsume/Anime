@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════
 #  Narumi Android APK 自动构建 (GitHub Actions)
-#  Push main / 手动触发 / 发布 Release 时, 自动编译并上传 APK
-#  APK 默认 Debug 签名, 可直接安装到手机
+#   触发: push main(android/** 或本文件) / 手动 / Release
+#   产出: Narumi-Debug-APK (Debug 签名, 可直接安装)
 # ═══════════════════════════════════════════════════════════
 name: Build Narumi APK
 
@@ -17,7 +17,7 @@ on:
 
 jobs:
   build:
-    name: 🏗️ Build APK
+    name: Build APK
     runs-on: ubuntu-latest
 
     steps:
@@ -30,7 +30,6 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # 自包含 SDK 安装: 不依赖第三方 action, 全程可控
       - name: Set up Android SDK (cmdline-tools)
         run: |
           set -e
@@ -46,21 +45,16 @@ jobs:
       - name: Accept licenses + Install SDK packages
         run: |
           set -e
-          # 手动写入 license hash (比 yes|sdkmanager --licenses 可靠)
           mkdir -p "$ANDROID_HOME/licenses"
-          cat > "$ANDROID_HOME/licenses/android-sdk-license" <<'EOF'
-8933bad161af4178b1185d1a37fbf41ea5269c55
-d56f5187479451eabf01fb78af6dfcb131a6481e
-24333f8a63b6825ea9c5514f83c2829b004d1fee
-EOF
-          cat > "$ANDROID_HOME/licenses/android-sdk-preview-license" <<'EOF'
-84831b9409646a918e30573bab4c9c91346d8abd
-EOF
+          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
-          echo "--- licenses dir ---"
+          echo "--- licenses ---"
           ls "$ANDROID_HOME/licenses/" 2>/dev/null || echo "NO licenses dir!"
-          echo "--- sdk content ---"
+          echo "--- sdk ---"
           ls "$ANDROID_HOME"
 
       - name: Set up Gradle 8.5
@@ -72,15 +66,17 @@ EOF
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
-      # 构建 + 完整日志 (失败也上传, 便于定位)
-      - name: Build Debug APK (可安装)
+      - name: Build Debug APK
         id: build
         working-directory: android
         continue-on-error: true
         run: |
-          echo "=== java ==="; java -version 2>&1 | head -2
-          echo "=== gradle ==="; gradle --version | head -6
-          echo "=== local.properties ==="; cat local.properties
+          echo "=== java ==="
+          java -version 2>&1 | head -2
+          echo "=== gradle ==="
+          gradle --version | head -6
+          echo "=== local.properties ==="
+          cat local.properties
           echo "=== assembleDebug ==="
           gradle assembleDebug --stacktrace --no-daemon --console=plain 2>&1 | tee /tmp/build.log
           exit ${PIPESTATUS[0]}
@@ -101,25 +97,26 @@ EOF
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # 发布 Release 时把 APK 挂到 Release 附件
       - name: Attach APK to Release
         if: github.event_name == 'release' && steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v2
         with:
           files: android/app/build/outputs/apk/debug/*.apk
 
-      - name: Fail on build error
+      - name: Report error (visible in check annotations)
         if: steps.build.outcome == 'failure'
         run: |
-          echo "::error::Gradle build failed. Log tail:"
-          tail -80 /tmp/build.log | sed 's/\(.*\)/::error::LOG: \1/'
+          echo "::error::Gradle build FAILED. Last 10 log lines:"
+          tail -10 /tmp/build.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r l; do
+            echo "::error::LOG:$l"
+          done
           exit 1
 
       - name: Summary
         if: steps.build.outcome == 'success'
         run: |
           echo "=========================================="
-          echo "  ✅ APK Build Complete!"
+          echo "  APK Build Complete!"
           echo "=========================================="
           echo "  Artifact: Narumi-Debug-APK"
           echo "  下载: Actions → 本次运行 → Artifacts"
