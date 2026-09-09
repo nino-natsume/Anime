@@ -227,6 +227,11 @@ async function handleRegister(request, env, corsHeaders) {
     return jsonResponse({ error: '密码至少6位' }, 400, corsHeaders);
   }
 
+  // 邮箱格式校验: 非法的邮箱在写入前直接拒绝, 保证"成功注册后才有对应信息"
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    return jsonResponse({ error: '邮箱格式不正确' }, 400, corsHeaders);
+  }
+
   // 检查用户名和邮箱是否已存在
   const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ? OR email = ?')
     .bind(username, email).first();
@@ -242,7 +247,15 @@ async function handleRegister(request, env, corsHeaders) {
     'INSERT INTO users (username, email, password_hash, avatar_url) VALUES (?, ?, ?, ?)'
   ).bind(username, email, passwordHash, avatarUrl).run();
 
+  // 写入后回读确认: 只有记录真实存在才返回 token, 否则视为注册失败不返回任何凭证
   const userId = result.meta.last_row_id;
+  const created = userId
+    ? await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(userId).first()
+    : null;
+  if (!created) {
+    return jsonResponse({ error: '注册失败, 未写入用户信息' }, 500, corsHeaders);
+  }
+
   const token = await createJWT({ userId, username, email }, env.JWT_SECRET || 'narumi-default-secret-change-me');
 
   return jsonResponse({

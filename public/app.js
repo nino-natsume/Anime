@@ -58,6 +58,7 @@
     searchQuery: '',
     heroIndex: 0,
     heroTimer: null,
+    lastDetail: null,       // 最近一次打开的番剧详情 (播放页信息区用)
     watchlistData: [],
   };
 
@@ -400,9 +401,15 @@
 
       const anime = detailRes.data;
       const episodes = episodesRes.data || [];
+      state.lastDetail = anime;   // 供播放页信息区复用
 
       const inWatchlist = state.user ? state.watchlistData.some(w => String(w.anime_id) === String(id)) : false;
       const detailImage = imgProxy(anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url) || IMG_FALLBACK;
+
+      // 副标题: 优先日文原名, 与主标题相同时再考虑英文名, 均相同则不显示
+      const subTitle = (anime.title_japanese && anime.title_japanese !== anime.title)
+        ? anime.title_japanese
+        : (anime.title_english && anime.title_english !== anime.title ? anime.title_english : '');
 
       dom.app.innerHTML = `
         <div class="detail-page page-transition">
@@ -417,7 +424,7 @@
             <div class="detail-info">
               <h1 class="detail-title">
                 ${anime.title}
-                <span class="detail-title-en">${anime.title_english || anime.title_japanese || ''}</span>
+                ${subTitle ? `<span class="detail-title-en">${subTitle}</span>` : ''}
               </h1>
               <div class="detail-meta">
                 ${anime.score ? `<div class="detail-meta-tag rating"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>${anime.score}</div>` : ''}
@@ -840,6 +847,8 @@
     $('#playerLoading').innerHTML = '';
     $('#playerLoading').style.display = 'flex';
 
+    renderPlayerInfo(animeId, title);
+
     const loaderHtml = () => `
       <div class="loader-ring small"><div class="loader-ring-inner"></div></div>
       <span>正在加载播放源...</span>
@@ -890,6 +899,57 @@
         `;
         renderPlayerEpisodes(animeId, episode, title, null);
       });
+  }
+
+  // 播放页信息区: 番名/简略信息/收藏按钮, 无详情数据时隐藏
+  function renderPlayerInfo(animeId, title) {
+    const el = $('#playerInfo');
+    const anime = state.lastDetail && String(state.lastDetail.mal_id) === String(animeId) ? state.lastDetail : null;
+    if (!anime) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    const img = imgProxy(anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url) || IMG_FALLBACK;
+    const inWatchlist = state.user ? state.watchlistData.some(w => String(w.anime_id) === String(animeId)) : false;
+    const chips = [
+      anime.score ? `<span class="player-info-chip">⭐ ${anime.score}</span>` : '',
+      anime.type ? `<span class="player-info-chip">${anime.type}</span>` : '',
+      anime.episodes ? `<span class="player-info-chip">${anime.episodes} 集</span>` : '',
+      anime.year ? `<span class="player-info-chip">${anime.year}年</span>` : '',
+    ].filter(Boolean).join('');
+    const watchBtn = state.user ? `
+      <button class="player-info-watch watch-btn ${inWatchlist ? 'active' : ''}" data-id="${animeId}"
+        onclick="window.Narumi.toggleWatchlist(${animeId}, '${(anime.title || '').replace(/'/g, "\\'")}', '${(anime.images?.jpg?.image_url || '').replace(/'/g, "\\'")}')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="${inWatchlist ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        <span>${inWatchlist ? '已追番' : '追番'}</span>
+      </button>
+    ` : `
+      <button class="player-info-watch" onclick="window.Narumi.showAuth()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        <span>登录后追番</span>
+      </button>
+    `;
+    el.innerHTML = `
+      <div class="player-info-poster-wrap">
+        <img class="player-info-poster" src="${img}" alt="" loading="lazy" onerror="this.onerror=null;this.src=Narumi.IMG_FALLBACK">
+      </div>
+      <div class="player-info-main">
+        <div class="player-info-title">${anime.title || title}</div>
+        ${chips ? `<div class="player-info-meta">${chips}</div>` : ''}
+        ${anime.synopsis ? `<p class="player-info-synopsis">${anime.synopsis}</p>` : ''}
+      </div>
+      <div class="player-info-side">${watchBtn}</div>
+    `;
+  }
+
+  // 播放页收藏按钮状态轻量刷新 (不重新加载整页)
+  function refreshPlayerWatchBtn(animeId) {
+    const btn = $(`.player-info-watch[data-id="${animeId}"]`);
+    if (!btn) return;
+    const inWatchlist = state.watchlistData.some(w => String(w.anime_id) === String(animeId));
+    btn.classList.toggle('active', inWatchlist);
+    const svg = btn.querySelector('svg');
+    if (svg) svg.setAttribute('fill', inWatchlist ? 'currentColor' : 'none');
+    const span = btn.querySelector('span');
+    if (span) span.textContent = inWatchlist ? '已追番' : '追番';
   }
 
   function renderPlayerEpisodes(animeId, currentEp, title, episodes) {
@@ -988,11 +1048,18 @@
     loader.style.display = 'inline-block';
 
     try {
+      const email = $('#regEmail').value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+        const errorEl = $('#authError');
+        errorEl.textContent = '邮箱格式不正确';
+        errorEl.classList.remove('hidden');
+        return;
+      }
       const data = await apiFetch('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify({
-          username: $('#regUsername').value,
-          email: $('#regEmail').value,
+          username: $('#regUsername').value.trim(),
+          email,
           password: $('#regPassword').value,
         }),
       });
@@ -1106,10 +1173,14 @@
         });
         state.watchlistData.push({ anime_id: animeId, anime_title: title });
         showToast('已添加到追番列表', 'success');
-        // 刷新详情页按钮
-        const { path } = getRoute();
-        if (path.startsWith('/anime/')) {
-          renderDetailPage(path.split('/anime/')[1]);
+        // 播放器打开时只刷新收藏按钮, 否则刷新详情页
+        if (dom.playerOverlay.classList.contains('show')) {
+          refreshPlayerWatchBtn(animeId);
+        } else {
+          const { path } = getRoute();
+          if (path.startsWith('/anime/')) {
+            renderDetailPage(path.split('/anime/')[1]);
+          }
         }
       } catch (err) {
         showToast('操作失败: ' + err.message, 'error');
@@ -1122,6 +1193,11 @@
       await apiFetch(`/api/user/watchlist/${animeId}`, { method: 'DELETE' });
       state.watchlistData = state.watchlistData.filter(w => String(w.anime_id) !== String(animeId));
       showToast('已从追番列表移除', 'info');
+      // 播放器打开时只刷新收藏按钮
+      if (dom.playerOverlay.classList.contains('show')) {
+        refreshPlayerWatchBtn(animeId);
+        return;
+      }
       // 如果在追番页，刷新
       const { path } = getRoute();
       if (path === '/watchlist') {

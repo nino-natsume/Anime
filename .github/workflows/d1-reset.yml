@@ -1,0 +1,31 @@
+name: D1 Reset (清空数据库)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '输入 RESET 确认清空全部用户/追番/历史数据'
+        required: true
+        default: ''
+
+jobs:
+  reset:
+    name: Wipe D1 tables
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm == 'RESET' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: Wipe D1 tables (users / watchlist / watch_history)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "清空 users / watchlist / watch_history ..."
+          wrangler d1 execute 3376fb80-46b7-4c40-b491-5831af0243fc --remote --command "DELETE FROM watch_history; DELETE FROM watchlist; DELETE FROM users; DELETE FROM sqlite_sequence WHERE name IN ('users','watchlist','watch_history');"
+          echo "验证剩余行数:"
+          wrangler d1 execute 3376fb80-46b7-4c40-b491-5831af0243fc --remote --command "SELECT 'users' AS tbl, COUNT(*) AS cnt FROM users UNION ALL SELECT 'watchlist', COUNT(*) FROM watchlist UNION ALL SELECT 'watch_history', COUNT(*) FROM watch_history;"
