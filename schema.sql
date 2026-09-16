@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT,
   github_id TEXT UNIQUE,
+  oauth_key TEXT UNIQUE,
   avatar_url TEXT,
   auth_provider TEXT DEFAULT 'local',
   created_at DATETIME DEFAULT (datetime('now')),
@@ -50,3 +51,4 @@ CREATE INDEX IF NOT EXISTS idx_watchlist_status ON watchlist(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_history_user ON watch_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_history_anime ON watch_history(anime_id);
 CREATE INDEX IF NOT EXISTS idx_users_github ON users(github_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_key ON users(oauth_key);

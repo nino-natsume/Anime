@@ -70,8 +70,8 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                // GitHub OAuth 回调走应用内
-                if (url.contains("/api/auth/github")) {
+                // 统一 OAuth 授权中心 (oauth.107211.xyz) 走应用内
+                if (url.startsWith("https://oauth.107211.xyz")) {
                     return false;
                 }
                 // 其他外部链接用浏览器打开

@@ -92,8 +92,6 @@ function main() {
     D1_DATABASE_ID: { required: true },
     KV_NAMESPACE_ID: { required: true },
     SITE_URL: { required: false },
-    CLIENT_ID: { required: true },
-    CLIENT_SECRET: { required: true },
     JWT_SECRET: { required: true },
     STREAM_API_URL: { required: false },
     STREAM_ANIKOTO_URL: { required: false },

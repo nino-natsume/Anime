@@ -183,13 +183,18 @@
   }
 
   function handleAuthCallback(params) {
+    if (params.error) {
+      showToast(decodeURIComponent(params.error) + '，请重试', 'error');
+      window.location.hash = '#/';
+      return;
+    }
     if (params.token) {
       state.token = params.token;
       localStorage.setItem('narumi_token', params.token);
       try {
         state.user = JSON.parse(decodeURIComponent(params.user || '{}'));
       } catch { state.user = null; }
-      showToast('GitHub 登录成功！', 'success');
+      showToast('登录成功！', 'success');
       window.location.hash = '#/';
     }
   }

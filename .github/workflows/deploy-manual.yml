@@ -29,14 +29,6 @@ on:
         description: 'Site URL (可选, 默认 https://anime.107211.xyz)'
         required: false
         default: 'https://anime.107211.xyz'
-      CLIENT_ID:
-        description: 'GitHub OAuth Client ID'
-        required: true
-        default: ''
-      CLIENT_SECRET:
-        description: 'GitHub OAuth Client Secret'
-        required: true
-        type: secret
       JWT_SECRET:
         description: 'JWT Secret (任意随机字符串)'
         required: true
@@ -66,8 +58,6 @@ jobs:
           D1_DATABASE_ID: ${{ inputs.D1_DATABASE_ID }}
           KV_NAMESPACE_ID: ${{ inputs.KV_NAMESPACE_ID }}
           SITE_URL: ${{ inputs.SITE_URL }}
-          CLIENT_ID: ${{ inputs.CLIENT_ID }}
-          CLIENT_SECRET: ${{ inputs.CLIENT_SECRET }}
           JWT_SECRET: ${{ inputs.JWT_SECRET }}
           STREAM_API_URL: ${{ inputs.STREAM_API_URL }}
           STREAM_ANIKOTO_URL: ${{ inputs.STREAM_ANIKOTO_URL }}

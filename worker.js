@@ -40,14 +40,14 @@ export default {
         return handleLogin(request, env, corsHeaders);
       }
 
-      // 认证: GitHub OAuth 登录
-      if (path === '/api/auth/github' && method === 'GET') {
-        return handleGithubAuth(env, corsHeaders);
+      // 认证: 统一 OAuth 登录(经 oauth.107211.xyz 授权中心)
+      if (path === '/api/auth/oauth' && method === 'GET') {
+        return handleOAuthStart(request, env, corsHeaders);
       }
 
-      // 认证: GitHub OAuth 回调
-      if (path === '/api/auth/github/callback' && method === 'GET') {
-        return handleGithubCallback(request, env, corsHeaders);
+      // 认证: 统一 OAuth 回调(建立本地会话)
+      if (path === '/api/auth/sso' && method === 'GET') {
+        return handleOAuthSso(request, env, corsHeaders);
       }
 
       // 认证: 获取当前用户
@@ -300,107 +300,138 @@ async function handleLogin(request, env, corsHeaders) {
   }, 200, corsHeaders);
 }
 
-async function handleGithubAuth(env, corsHeaders) {
-  const clientId = env.CLIENT_ID;
-  if (!clientId) {
-    return jsonResponse({ error: 'GitHub OAuth 未配置' }, 500, corsHeaders);
-  }
-
-  const redirectUri = `${env.SITE_URL || ''}/api/auth/github/callback`;
-  const githubUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user:email`;
-
-  return Response.redirect(githubUrl, 302);
+async function handleOAuthStart(request, env, corsHeaders) {
+  // 跳转统一 OAuth 授权中心; 登录成功后会回调本站 SSO 端点
+  const origin = env.SITE_URL || new URL(request.url).origin;
+  const ref = `${origin}/api/auth/sso`;
+  return Response.redirect(`https://oauth.107211.xyz/?ref=${encodeURIComponent(ref)}`, 302);
 }
 
-async function handleGithubCallback(request, env, corsHeaders) {
+async function handleOAuthSso(request, env, corsHeaders) {
   const url = new URL(request.url);
-  const code = url.searchParams.get('code');
+  const success = url.searchParams.get('oauth_success');
+  const provider = (url.searchParams.get('provider') || '').trim();
+  const usernameParam = (url.searchParams.get('username') || '').trim();
+  const name = (url.searchParams.get('name') || '').trim();
+  const email = (url.searchParams.get('email') || '').trim();
+  const avatar = (url.searchParams.get('avatar') || '').trim();
 
-  if (!code) {
-    return jsonResponse({ error: '缺少授权码' }, 400, corsHeaders);
+  const fail = (msg) => Response.redirect(
+    `${env.SITE_URL || url.origin}/#auth-callback?error=${encodeURIComponent(msg)}`, 302
+  );
+
+  if (success !== '1' || !provider) {
+    return fail('未获得第三方授权, 请重新尝试');
+  }
+  if (!/^[a-z0-9_-]{1,32}$/i.test(provider)) {
+    return fail('登录来源无效');
   }
 
+  const key = (email || usernameParam || name || '').slice(0, 120);
+  if (!key) return fail('未能识别第三方账号身份');
+
+  // 老库迁移: 确保 users 表具备 oauth_key 列 (幂等)
+  await ensureOauthKeyColumn(env.DB);
+
+  const oauthKey = `${provider}:${key}`;
+
+  // 查找用户: 先按 oauth_key; 兼容老 GitHub 用户 (github_id)
+  let user = await env.DB.prepare('SELECT * FROM users WHERE oauth_key = ?').bind(oauthKey).first();
+  if (!user && provider === 'github' && /^\d+$/.test(key)) {
+    user = await env.DB.prepare('SELECT * FROM users WHERE github_id = ?').bind(key).first();
+    if (user) {
+      await env.DB.prepare('UPDATE users SET oauth_key = ?, auth_provider = ? WHERE id = ?')
+        .bind(oauthKey, provider, user.id).run();
+    }
+  }
+
+  let username;
+  if (user) {
+    username = user.username;
+  } else {
+    username = await nextUsername(env.DB, provider, usernameParam || name);
+    const oauthEmail = await uniqueOauthEmail(env.DB, oauthKey);
+    const avatarUrl = avatar || `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(username)}`;
+    const result = await env.DB.prepare(
+      'INSERT INTO users (username, email, oauth_key, avatar_url, auth_provider) VALUES (?, ?, ?, ?, ?)'
+    ).bind(username, oauthEmail, oauthKey, avatarUrl, provider).run();
+    user = result.meta.last_row_id
+      ? await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(result.meta.last_row_id).first()
+      : null;
+    if (!user) return fail('创建用户失败');
+  }
+
+  const jwtToken = await createJWT(
+    { userId: user.id, username: user.username, email: user.email },
+    env.JWT_SECRET || 'narumi-default-secret-change-me'
+  );
+
+  // 重定向回前端, 带上 token (前端 #auth-callback 路由接收)
+  const siteUrl = env.SITE_URL || url.origin;
+  const userJson = encodeURIComponent(JSON.stringify({
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    avatar_url: user.avatar_url,
+  }));
+  return Response.redirect(`${siteUrl}/#auth-callback?token=${jwtToken}&user=${userJson}`, 302);
+}
+
+/* ─── OAuth 用户名 / 迁移工具 ─── */
+
+// 老库迁移: users 表缺 oauth_key 列时补充 (SQLite ALTER 无法加 UNIQUE, 用唯一索引替代)
+async function ensureOauthKeyColumn(db) {
   try {
-    // 交换 token
-    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        client_id: env.CLIENT_ID,
-        client_secret: env.CLIENT_SECRET,
-        code,
-      }),
-    });
-
-    const tokenData = await tokenRes.json();
-    if (tokenData.error) {
-      return jsonResponse({ error: 'GitHub 授权失败', detail: tokenData.error_description }, 401, corsHeaders);
+    const cols = await db.prepare('PRAGMA table_info(users)').all();
+    if (!(cols.results || []).some((c) => c && c.name === 'oauth_key')) {
+      await db.prepare('ALTER TABLE users ADD COLUMN oauth_key TEXT').run();
+      await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_key ON users(oauth_key)').run();
     }
-
-    // 获取用户信息
-    const userRes = await fetch('https://api.github.com/user', {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`,
-        'User-Agent': 'Narumi-App',
-      },
-    });
-    const ghUser = await userRes.json();
-
-    // 获取邮箱
-    const emailRes = await fetch('https://api.github.com/user/emails', {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`,
-        'User-Agent': 'Narumi-App',
-      },
-    });
-    const emails = await emailRes.json();
-    const primaryEmail = Array.isArray(emails) ? emails.find(e => e.primary)?.email || emails[0]?.email : '';
-
-    const githubId = String(ghUser.id);
-    const username = ghUser.login;
-    const email = primaryEmail || `${username}@github.local`;
-    const avatarUrl = ghUser.avatar_url;
-
-    // 查找或创建用户
-    let user = await env.DB.prepare('SELECT * FROM users WHERE github_id = ?').bind(githubId).first();
-
-    if (!user) {
-      // 检查用户名冲突
-      const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
-      if (existing) {
-        // 加后缀
-        const newUsername = `${username}_${githubId.slice(-4)}`;
-        await env.DB.prepare(
-          'INSERT INTO users (username, email, github_id, avatar_url, auth_provider) VALUES (?, ?, ?, ?, ?)'
-        ).bind(newUsername, email, githubId, avatarUrl, 'github').run();
-        user = await env.DB.prepare('SELECT * FROM users WHERE github_id = ?').bind(githubId).first();
-      } else {
-        await env.DB.prepare(
-          'INSERT INTO users (username, email, github_id, avatar_url, auth_provider) VALUES (?, ?, ?, ?, ?)'
-        ).bind(username, email, githubId, avatarUrl, 'github').run();
-        user = await env.DB.prepare('SELECT * FROM users WHERE github_id = ?').bind(githubId).first();
-      }
-    }
-
-    const jwtToken = await createJWT(
-      { userId: user.id, username: user.username, email: user.email },
-      env.JWT_SECRET || 'narumi-default-secret-change-me'
-    );
-
-    // 重定向回前端，带上 token
-    const siteUrl = env.SITE_URL || url.origin;
-    return Response.redirect(`${siteUrl}/#auth-callback?token=${jwtToken}&user=${encodeURIComponent(JSON.stringify({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      avatar_url: user.avatar_url,
-    }))}`, 302);
-  } catch (err) {
-    return jsonResponse({ error: 'GitHub 认证处理失败', message: err.message }, 500, corsHeaders);
+  } catch {
+    // 已迁移或处于竞态时静默失败
   }
+}
+
+// 生成本地用户名:
+// - 拉丁用户名原样保留 (GitHub login / GitLab username 等)
+// - 中文/符号昵称清洗为空时, 用 provider 前缀 + 稳定短哈希, 避免全部退化为 "user"
+async function nextUsername(db, provider, raw) {
+  const cleaned = String(raw || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32);
+  const pname = provider.replace(/[^a-z0-9_]/g, '');
+  let base = cleaned;
+  if (!base) {
+    const digest = await sha256Short(`${pname}:${raw}`);
+    base = `${pname}_${digest}`;
+  }
+  if (!/^[a-z0-9_]{3,32}$/.test(base)) base = `${pname}_${base}`.slice(0, 32);
+  let candidate = base;
+  let i = 1;
+  while (await usernameExists(db, candidate)) candidate = `${base}_${i++}`;
+  return candidate;
+}
+
+async function usernameExists(db, username) {
+  const row = await db.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
+  return !!row;
+}
+
+// 第三方登录无真实邮箱时, 用 oauth_key 摘要生成稳定占位邮箱 (email 列 NOT NULL UNIQUE)
+async function uniqueOauthEmail(db, oauthKey) {
+  const digest = await sha256Short(oauthKey);
+  let email = `oauth_${digest}@users.local`;
+  let i = 1;
+  while (await emailExists(db, email)) email = `oauth_${digest}_${i++}@users.local`;
+  return email;
+}
+
+async function emailExists(db, email) {
+  const row = await db.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
+  return !!row;
+}
+
+async function sha256Short(input) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 10);
 }
 
 async function handleGetMe(request, env, corsHeaders) {
