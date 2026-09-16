@@ -955,21 +955,21 @@ img { max-width: 100%; display: block; }
 
 .btn-full { width: 100%; }
 
-.btn-github {
+.btn-oauth {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   padding: 12px 24px;
   border-radius: var(--radius-md);
-  background: #24292e;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
   font-size: 0.9rem;
   font-weight: 600;
   transition: all 0.25s;
 }
 
-.btn-github:hover { background: #374151; transform: translateY(-1px); }
+.btn-oauth:hover { opacity: 0.9; transform: translateY(-1px); }
 
 .btn-loader {
   width: 18px;
