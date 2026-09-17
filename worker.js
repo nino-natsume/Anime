@@ -355,7 +355,7 @@ async function handleOAuthSso(request, env, corsHeaders) {
 
   const siteUrl = env.SITE_URL || url.origin;
   const fail = (msg) => Response.redirect(
-    `${siteUrl}/#auth-callback?error=${encodeURIComponent(msg)}`, 302
+    `${siteUrl}/#/auth-callback?error=${encodeURIComponent(msg)}`, 302
   );
 
   // 调试: 部署后可用 wrangler tail 查看授权中心实际回传的参数
@@ -393,7 +393,7 @@ async function handleOAuthSso(request, env, corsHeaders) {
   } else {
     username = await nextUsername(env.DB, provider, usernameParam || name);
     const oauthEmail = await uniqueOauthEmail(env.DB, oauthKey);
-    const avatarUrl = avatar || `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(username)}`;
+    const avatarUrl = secureImg(avatar) || `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(username)}`;
     const result = await env.DB.prepare(
       'INSERT INTO users (username, email, oauth_key, avatar_url, auth_provider) VALUES (?, ?, ?, ?, ?)'
     ).bind(username, oauthEmail, oauthKey, avatarUrl, provider).run();
@@ -408,14 +408,14 @@ async function handleOAuthSso(request, env, corsHeaders) {
     env.JWT_SECRET || 'narumi-default-secret-change-me'
   );
 
-  // 重定向回前端, 带上 token (前端 #auth-callback 路由接收)
+  // 重定向回前端, 带上 token (前端 #/auth-callback 路由接收)
   const userJson = encodeURIComponent(JSON.stringify({
     id: user.id,
     username: user.username,
     email: user.email,
     avatar_url: user.avatar_url,
   }));
-  return Response.redirect(`${siteUrl}/#auth-callback?token=${jwtToken}&user=${userJson}`, 302);
+  return Response.redirect(`${siteUrl}/#/auth-callback?token=${jwtToken}&user=${userJson}`, 302);
 }
 
 /* ─── OAuth 用户名 / 迁移工具 ─── */

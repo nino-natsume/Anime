@@ -175,7 +175,7 @@
     } else if (path.startsWith('/anime/')) {
       const id = path.split('/anime/')[1];
       await renderDetailPage(id);
-    } else if (path === '/auth-callback') {
+    } else if (path === '/auth-callback' || path === 'auth-callback') {
       handleAuthCallback(params);
     } else {
       dom.app.innerHTML = `<div class="section page-transition"><div class="empty-state"><div class="icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 15h8M9 9h.01M15 9h.01"/></svg></div><h3>页面不存在</h3><p>请检查 URL 是否正确</p></div></div>`;
