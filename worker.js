@@ -45,8 +45,8 @@ export default {
         return handleOAuthStart(request, env, corsHeaders);
       }
 
-      // 认证: 统一 OAuth 回调(建立本地会话)
-      if (path === '/api/auth/sso' && method === 'GET') {
+      // 认证: 统一 OAuth 回调(建立本地会话; GET 302 回跳 + form_post 兼容)
+      if (path === '/api/auth/sso' && (method === 'GET' || method === 'POST')) {
         return handleOAuthSso(request, env, corsHeaders);
       }
 
@@ -309,25 +309,67 @@ async function handleOAuthStart(request, env, corsHeaders) {
 
 async function handleOAuthSso(request, env, corsHeaders) {
   const url = new URL(request.url);
-  const success = url.searchParams.get('oauth_success');
-  const provider = (url.searchParams.get('provider') || '').trim();
-  const usernameParam = (url.searchParams.get('username') || '').trim();
-  const name = (url.searchParams.get('name') || '').trim();
-  const email = (url.searchParams.get('email') || '').trim();
-  const avatar = (url.searchParams.get('avatar') || '').trim();
 
+  // 授权中心回跳参数可能在 query string, 也可能在 hash fragment; 两者都解析
+  const params = new URLSearchParams(url.search);
+  const hashQueryIdx = url.hash.indexOf('?');
+  if (hashQueryIdx >= 0) {
+    const hashParams = new URLSearchParams(url.hash.slice(hashQueryIdx + 1));
+    for (const [k, v] of hashParams) {
+      if (!params.has(k)) params.set(k, v);
+    }
+  }
+
+  // 兼容 form_post 模式 (OAuth response_mode=form_post)
+  if (request.method === 'POST') {
+    try {
+      const form = await request.formData();
+      for (const [k, v] of form.entries()) {
+        if (!params.has(k)) params.set(k, String(v));
+      }
+    } catch {
+      // 非表单 POST, 忽略
+    }
+  }
+
+  // 归一化取值: 依次尝试多个参数名, 取第一个非空值
+  const get = (...names) => {
+    for (const n of names) {
+      const v = (params.get(n) || '').trim();
+      if (v) return v;
+    }
+    return '';
+  };
+
+  // 成功标记: 兼容 oauth_success / status / success; 值为 1/true/success/ok 即通过
+  const successRaw = get('oauth_success', 'status', 'success');
+  const success = ['1', 'true', 'success', 'ok', 'yes'].includes(successRaw.toLowerCase());
+
+  // 身份来源: 兼容 provider / platform
+  const provider = get('provider', 'platform');
+  const usernameParam = get('username', 'login', 'preferred_username', 'nickname');
+  const name = get('name', 'display_name', 'nickname', 'realname');
+  const email = get('email', 'mail');
+  const avatar = get('avatar', 'avatar_url', 'avatarUrl', 'picture', 'photo');
+  const oauthId = get('id', 'sub', 'uid', 'openid');
+
+  const siteUrl = env.SITE_URL || url.origin;
   const fail = (msg) => Response.redirect(
-    `${env.SITE_URL || url.origin}/#auth-callback?error=${encodeURIComponent(msg)}`, 302
+    `${siteUrl}/#auth-callback?error=${encodeURIComponent(msg)}`, 302
   );
 
-  if (success !== '1' || !provider) {
+  // 调试: 部署后可用 wrangler tail 查看授权中心实际回传的参数
+  console.log('Narumi SSO params:', Object.fromEntries(params));
+
+  if (!success || !provider) {
     return fail('未获得第三方授权, 请重新尝试');
   }
   if (!/^[a-z0-9_-]{1,32}$/i.test(provider)) {
     return fail('登录来源无效');
   }
 
-  const key = (email || usernameParam || name || '').slice(0, 120);
+  // 身份键: 优先 email, 其次用户名/昵称/ID (QQ/微信/Twitter 无 email 也有稳定 id)
+  const key = (email || usernameParam || name || oauthId || '').slice(0, 120);
   if (!key) return fail('未能识别第三方账号身份');
 
   // 老库迁移: 确保 users 表具备 oauth_key 列 (幂等)
@@ -367,7 +409,6 @@ async function handleOAuthSso(request, env, corsHeaders) {
   );
 
   // 重定向回前端, 带上 token (前端 #auth-callback 路由接收)
-  const siteUrl = env.SITE_URL || url.origin;
   const userJson = encodeURIComponent(JSON.stringify({
     id: user.id,
     username: user.username,

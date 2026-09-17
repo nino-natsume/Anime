@@ -183,8 +183,9 @@
   }
 
   function handleAuthCallback(params) {
+    // 注意: getRoute() 已对 hash 参数做过 decodeURIComponent, 这里不要再二次解码
     if (params.error) {
-      showToast(decodeURIComponent(params.error) + '，请重试', 'error');
+      showToast(params.error + '，请重试', 'error');
       window.location.hash = '#/';
       return;
     }
@@ -192,7 +193,7 @@
       state.token = params.token;
       localStorage.setItem('narumi_token', params.token);
       try {
-        state.user = JSON.parse(decodeURIComponent(params.user || '{}'));
+        state.user = JSON.parse(params.user || '{}');
       } catch { state.user = null; }
       showToast('登录成功！', 'success');
       window.location.hash = '#/';
