@@ -1155,11 +1155,11 @@
         avatar.innerHTML = state.user.username[0].toUpperCase();
       }
       const rawEmail = state.user.email || '';
-      // 第三方登录的占位邮箱 (oauth_<hash>@users.local) 不显示, 转为用户 ID 展示
-      const isPlaceholderEmail = /^oauth_[a-f0-9]{10}@users\.local$/i.test(rawEmail);
-      const emailLine = !isPlaceholderEmail && rawEmail
-        ? `<div class="email">${rawEmail}</div>`
-        : `<div class="email">用户 #${state.user.id || ''}</div>`;
+      // 占位邮箱 (oauth_<hash>@users.local) 转为 5 位起账号 ID; 正常邮箱原样显示
+      const oauthPh = /^oauth_[a-f0-9]{10}@users\.local$/i.test(rawEmail);
+      const emailLine = oauthPh || !rawEmail
+        ? `<div class="email">${10000 + (state.user.id | 0)}</div>`
+        : `<div class="email">${rawEmail}</div>`;
       dom.dropdownContent.innerHTML = `
         <div class="dropdown-user-info">
           <div class="name">${state.user.username}</div>
