@@ -196,6 +196,8 @@
         state.user = JSON.parse(params.user || '{}');
       } catch { state.user = null; }
       showToast('登录成功！', 'success');
+      updateUserUI();
+      loadWatchlistData();
       window.location.hash = '#/';
     }
   }
