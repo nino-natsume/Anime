@@ -1154,10 +1154,16 @@
       } else {
         avatar.innerHTML = state.user.username[0].toUpperCase();
       }
+      const rawEmail = state.user.email || '';
+      // 第三方登录的占位邮箱 (oauth_<hash>@users.local) 不显示, 转为用户 ID 展示
+      const isPlaceholderEmail = /^oauth_[a-f0-9]{10}@users\.local$/i.test(rawEmail);
+      const emailLine = !isPlaceholderEmail && rawEmail
+        ? `<div class="email">${rawEmail}</div>`
+        : `<div class="email">用户 #${state.user.id || ''}</div>`;
       dom.dropdownContent.innerHTML = `
         <div class="dropdown-user-info">
           <div class="name">${state.user.username}</div>
-          <div class="email">${state.user.email || ''}</div>
+          ${emailLine}
         </div>
         <button class="dropdown-item" onclick="location.hash='#/watchlist';window.Narumi.closeDropdown()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>

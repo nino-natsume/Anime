@@ -146,6 +146,12 @@ function getAuthToken(request) {
   return null;
 }
 
+// 第三方登录生成的占位邮箱 (oauth_<hash>@users.local) 不对外展示, 统一置为 null
+const OAUTH_PLACEHOLDER_EMAIL = /^oauth_[a-f0-9]{10}@users\.local$/i;
+function cleanUserEmail(email) {
+  return OAUTH_PLACEHOLDER_EMAIL.test(email || '') ? null : (email || null);
+}
+
 // 简易 JWT
 // ─── Unicode 安全的 Base64url ───
 // btoa/atob 只能处理 Latin1 字符; JWT 载荷可能包含中文等非 ASCII 字符,
@@ -320,7 +326,7 @@ async function handleLogin(request, env, corsHeaders) {
     user: {
       id: user.id,
       username: user.username,
-      email: user.email,
+      email: cleanUserEmail(user.email),
       avatar_url: user.avatar_url,
     },
   }, 200, corsHeaders);
@@ -460,7 +466,7 @@ async function handleOAuthSsoInner(request, env, corsHeaders) {
   const userJson = encodeURIComponent(JSON.stringify({
     id: user.id,
     username: user.username,
-    email: user.email,
+    email: cleanUserEmail(user.email),
     avatar_url: user.avatar_url,
   }));
   return Response.redirect(`${siteUrl}/#/auth-callback?token=${jwtToken}&user=${userJson}`, 302);
@@ -542,7 +548,7 @@ async function handleGetMe(request, env, corsHeaders) {
     return jsonResponse({ error: '用户不存在' }, 404, corsHeaders);
   }
 
-  return jsonResponse({ user }, 200, corsHeaders);
+  return jsonResponse({ user: { ...user, email: cleanUserEmail(user.email) } }, 200, corsHeaders);
 }
 
 // ─── 用户数据处理器 ───
@@ -566,7 +572,7 @@ async function handleUpdateProfile(request, env, corsHeaders) {
     'SELECT id, username, email, avatar_url FROM users WHERE id = ?'
   ).bind(payload.userId).first();
 
-  return jsonResponse({ user }, 200, corsHeaders);
+  return jsonResponse({ user: { ...user, email: cleanUserEmail(user.email) } }, 200, corsHeaders);
 }
 
 async function handleGetWatchlist(request, env, corsHeaders) {
