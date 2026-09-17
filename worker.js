@@ -3,6 +3,13 @@
  * 后端: 认证 / 用户数据 / Jikan API代理 / 流媒体代理
  */
 
+// 兜底: 捕获未处理的 Promise 拒绝 (异步链路中断最容易触发 Cloudflare 1101),
+// 吃掉它并打日志, 避免整个 Worker 实例崩溃成 1101 错误页
+self.addEventListener('unhandledrejection', (event) => {
+  event.preventDefault();
+  console.error('Narumi unhandled rejection:', event.reason);
+});
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -308,6 +315,18 @@ async function handleOAuthStart(request, env, corsHeaders) {
 }
 
 async function handleOAuthSso(request, env, corsHeaders) {
+  try {
+    return await handleOAuthSsoInner(request, env, corsHeaders);
+  } catch (err) {
+    // 任何异常都转成站内可读提示, 而不是 1101 / 裸 500
+    console.error('Narumi SSO crash:', err);
+    const siteUrl = env.SITE_URL || new URL(request.url).origin;
+    const msg = `登录处理异常: ${(err && err.message) || err}`;
+    return Response.redirect(`${siteUrl}/#/auth-callback?error=${encodeURIComponent(msg)}`, 302);
+  }
+}
+
+async function handleOAuthSsoInner(request, env, corsHeaders) {
   const url = new URL(request.url);
 
   // 授权中心回跳参数可能在 query string, 也可能在 hash fragment; 两者都解析

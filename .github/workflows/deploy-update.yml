@@ -20,13 +20,13 @@ name: Update Deploy (快捷更新 · 无需输入)
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   workflow_dispatch:
 
-# 同一时间只允许一个部署在跑，避免连续 push 互相覆盖
+# 同一时间只允许一个部署在跑; 有新 push 时取消旧 run 让最新代码优先
 concurrency:
   group: deploy-update
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
