@@ -390,6 +390,16 @@ async function handleOAuthSso(request, env, corsHeaders) {
   let username;
   if (user) {
     username = user.username;
+    // 已有用户但当前用户名是 provider_<hash> 占位(上次登录时昵称未保留),
+    // 且本次授权中心给了可读昵称 -> 顺手修正为真实昵称, 保证界面显示正确
+    const displayRaw = usernameParam || name;
+    if (displayRaw && /^[a-z0-9_-]+_[0-9a-f]{10}$/i.test(user.username)) {
+      const better = await nextUsername(env.DB, provider, displayRaw);
+      if (better && better !== user.username) {
+        await env.DB.prepare('UPDATE users SET username = ? WHERE id = ?').bind(better, user.id).run();
+        user.username = better;
+      }
+    }
   } else {
     username = await nextUsername(env.DB, provider, usernameParam || name);
     const oauthEmail = await uniqueOauthEmail(env.DB, oauthKey);
@@ -434,17 +444,22 @@ async function ensureOauthKeyColumn(db) {
 }
 
 // 生成本地用户名:
-// - 拉丁用户名原样保留 (GitHub login / GitLab username 等)
-// - 中文/符号昵称清洗为空时, 用 provider 前缀 + 稳定短哈希, 避免全部退化为 "user"
+// - 保留多语言字符(中文/日文/韩文等 \p{L})、数字、下划线、连字符, 真实昵称可直接作为用户名显示
+// - 纯符号/emoji 昵称清洗为空时, 用 provider 前缀 + 稳定短哈希兜底
 async function nextUsername(db, provider, raw) {
-  const cleaned = String(raw || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32);
-  const pname = provider.replace(/[^a-z0-9_]/g, '');
+  const cleaned = String(raw || '').replace(/[^\p{L}\p{N}_-]/gu, '').slice(0, 32);
+  const pname = provider.replace(/[^a-z0-9_-]/gi, '').toLowerCase();
   let base = cleaned;
   if (!base) {
     const digest = await sha256Short(`${pname}:${raw}`);
     base = `${pname}_${digest}`;
   }
-  if (!/^[a-z0-9_]{3,32}$/.test(base)) base = `${pname}_${base}`.slice(0, 32);
+  // 用户名至少 2 个字符; 过短或非法时加 provider 前缀, 保证可读且合法
+  const VALID = /^[\p{L}\p{N}_-]{2,32}$/u;
+  if (!VALID.test(base)) {
+    const prefixed = `${pname}_${base}`.slice(0, 32);
+    base = VALID.test(prefixed) ? prefixed : `${pname}_${await sha256Short(`${pname}:${raw}:${base}`)}`;
+  }
   let candidate = base;
   let i = 1;
   while (await usernameExists(db, candidate)) candidate = `${base}_${i++}`;
