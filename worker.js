@@ -147,12 +147,32 @@ function getAuthToken(request) {
 }
 
 // 简易 JWT
+// ─── Unicode 安全的 Base64url ───
+// btoa/atob 只能处理 Latin1 字符; JWT 载荷可能包含中文等非 ASCII 字符,
+// 统一先转 UTF-8 字节再 base64, 避免 "btoa() can only operate on Latin1" 异常
+function b64urlEncodeUtf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function b64urlDecodeUtf8(b64) {
+  const b64padded = b64.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (b64.length % 4)) % 4);
+  const bin = atob(b64padded);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 function createJWT(payload, secret, expiresIn = 7 * 24 * 3600) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
   const tokenPayload = { ...payload, iat: now, exp: now + expiresIn };
 
-  const base64 = (obj) => btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const base64 = (obj) => b64urlEncodeUtf8(JSON.stringify(obj));
   const signingInput = `${base64(header)}.${base64(tokenPayload)}`;
 
   // Web Crypto API for HMAC-SHA256
@@ -193,8 +213,7 @@ async function verifyJWT(token, secret) {
     if (!valid) return null;
 
     const payloadB64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const payloadPadded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
-    const payload = JSON.parse(atob(payloadPadded));
+    const payload = JSON.parse(b64urlDecodeUtf8(payloadB64));
 
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
 
